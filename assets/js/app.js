@@ -54,6 +54,7 @@
         initialAccountId: Number(initialRoute.get('smh_account') || 0),
         initialFolderId: Number(initialRoute.get('smh_folder') || 0),
         previewMessageId: null,
+        mobileMailSidebarOpen: false,
         mobileMailReaderOpen: false,
         folderContextId: null,
         recordContext: {
@@ -189,6 +190,21 @@
 
     function dispatchBridgeEvent(name, detail = {}) {
         app.dispatchEvent(new CustomEvent(name, { detail }));
+    }
+
+    function syncMobileMailSidebarState() {
+        const shouldOpen = Boolean(state.mobileMailSidebarOpen && state.module === 'mail');
+        app.classList.toggle('v24-smh-mobile-mail-sidebar-open', shouldOpen);
+    }
+
+    function openMobileMailSidebar() {
+        state.mobileMailSidebarOpen = !state.mobileMailSidebarOpen;
+        syncMobileMailSidebarState();
+    }
+
+    function closeMobileMailSidebar() {
+        state.mobileMailSidebarOpen = false;
+        syncMobileMailSidebarState();
     }
 
     function syncMobileMailReaderState() {
@@ -1886,6 +1902,7 @@
     function setActiveModule(module) {
         state.module = module;
         if (module !== 'mail') {
+            state.mobileMailSidebarOpen = false;
             state.mobileMailReaderOpen = false;
         }
         closeRecordContextMenu();
@@ -1899,6 +1916,7 @@
         });
 
         syncMobileMailReaderState();
+        syncMobileMailSidebarState();
 
         if (module === 'contacts') {
             loadContacts().catch((error) => setStatus(error.message || 'Caricamento contatti non riuscito.'));
@@ -1983,6 +2001,7 @@
         state.folderId = null;
         state.messages = [];
         state.currentMessage = null;
+        state.mobileMailSidebarOpen = false;
         state.mobileMailReaderOpen = false;
         state.folderContextId = null;
         state.messageContextId = null;
@@ -2008,6 +2027,7 @@
             region('messages').innerHTML = '<p>Nessuna cartella sincronizzata.</p>';
             region('reader').innerHTML = '<p>Avvia una sincronizzazione per popolare le cartelle.</p>';
             syncMobileMailReaderState();
+            syncMobileMailSidebarState();
             syncFolderRoute();
             setStatus('Account pronto.');
         }
@@ -2061,7 +2081,10 @@
         state.folderId = id;
         state.messages = [];
         state.currentMessage = null;
+        state.mobileMailSidebarOpen = false;
         state.mobileMailReaderOpen = false;
+        syncMobileMailSidebarState();
+        syncMobileMailReaderState();
         closeFolderContextMenu();
         closeMessageContextMenu();
         dispatchBridgeEvent('v24-smh-folder-selected', { accountId: state.accountId, folderId: id });
@@ -3336,9 +3359,11 @@
         const result = await api(`/mail/messages/${id}`);
         state.currentMessage = result.data;
         state.previewMessageId = null;
+        state.mobileMailSidebarOpen = false;
         state.mobileMailReaderOpen = true;
         highlightSelection(region('messages'), 'data-message-id', id);
         renderMessage(state.currentMessage, { preview: false });
+        syncMobileMailSidebarState();
         syncMobileMailReaderState();
         dispatchBridgeEvent('v24-smh-message-selected', {
             accountId: state.accountId,
@@ -5261,6 +5286,7 @@
                 resolveFolderDialog(null);
                 return;
             }
+            closeMobileMailSidebar();
             closeFolderContextMenu();
             closeMessageContextMenu();
             closeRecordContextMenu();
@@ -5271,6 +5297,7 @@
         closeFolderContextMenu();
         closeMessageContextMenu();
         closeRecordContextMenu();
+        syncMobileMailSidebarState();
         syncMobileMailReaderState();
     });
 
@@ -5317,6 +5344,10 @@
                 setActiveModule(actionTarget.getAttribute('data-module'));
             } else if (action === 'toggle-theme') {
                 await toggleTheme();
+            } else if (action === 'open-mail-sidebar') {
+                openMobileMailSidebar();
+            } else if (action === 'close-mail-sidebar') {
+                closeMobileMailSidebar();
             } else if (action === 'sync') {
                 await sync();
             } else if (action === 'compose') {

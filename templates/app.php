@@ -58,10 +58,12 @@
 
     <section class="v24-smh-module" data-module-panel="mail">
         <div class="v24-smh-module-toolbar">
+            <button type="button" class="v24-smh-button v24-smh-mail-sidebar-toggle" data-action="open-mail-sidebar">Cartelle</button>
             <button type="button" class="v24-smh-button" data-action="sync">Sincronizza</button>
             <button type="button" class="v24-smh-button v24-smh-button-primary" data-action="compose">Nuova email</button>
         </div>
         <main class="v24-smh-shell">
+            <button type="button" class="v24-smh-mail-sidebar-backdrop" data-action="close-mail-sidebar" aria-label="Chiudi cartelle"></button>
             <aside class="v24-smh-sidebar">
                 <h2>Account</h2>
                 <div data-region="accounts"></div>

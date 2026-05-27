@@ -1077,6 +1077,12 @@ html[data-v24-smh-theme="light"] .v24-smh-auth-shell {
     display: none;
 }
 
+.v24-smh-mail-sidebar-toggle,
+.v24-smh-mail-sidebar-backdrop,
+.v24-smh-mail-sidebar-head {
+    display: none;
+}
+
 .v24-smh-reader-shell {
     display: flex;
     flex-direction: column;
@@ -2869,7 +2875,58 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
 
     .v24-smh-module[data-module-panel="mail"] .v24-smh-shell {
         position: relative;
+        grid-template-columns: minmax(0, 1fr);
         gap: 12px;
+        overflow: hidden;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-mail-sidebar-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-mail-sidebar-backdrop {
+        display: block;
+        position: absolute;
+        inset: 0;
+        z-index: 19;
+        border: 0;
+        background: rgba(5, 11, 24, 0.52);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+    }
+
+    .v24-smh-app.v24-smh-mobile-mail-sidebar-open .v24-smh-module[data-module-panel="mail"] .v24-smh-mail-sidebar-backdrop {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 20;
+        width: min(86vw, 340px);
+        max-width: calc(100% - 18px);
+        min-height: 100%;
+        margin: 0;
+        border-radius: 22px;
+        transform: translateX(-104%);
+        transition: transform 0.22s ease;
+        overflow-y: auto;
+        box-shadow: 0 20px 48px rgba(0, 6, 18, 0.34);
+    }
+
+    .v24-smh-app.v24-smh-mobile-mail-sidebar-open .v24-smh-module[data-module-panel="mail"] .v24-smh-sidebar {
+        transform: translateX(0);
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-list {
+        min-height: min(62vh, 720px);
     }
 
     .v24-smh-module[data-module-panel="mail"] .v24-smh-reader {
@@ -3004,14 +3061,18 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
 
     .v24-smh-module[data-module-panel="mail"] .v24-smh-module-toolbar {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         align-items: stretch;
         gap: 10px;
+        padding: 12px 14px;
     }
 
     .v24-smh-module[data-module-panel="mail"] .v24-smh-module-toolbar > button {
         width: 100%;
         min-width: 0;
+        min-height: 36px;
+        padding: 8px 10px;
+        font-size: 12px;
     }
     
     #esci-button {

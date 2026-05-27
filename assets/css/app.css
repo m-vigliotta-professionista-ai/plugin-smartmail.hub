@@ -2333,7 +2333,7 @@ html[data-v24-smh-theme="light"] .v24-smh-auth-shell {
     padding: 10px 12px;
 }
 
-@media (max-width: 1400px) {
+@media (min-width: 1181px) and (max-width: 1400px) {
     .v24-smh-header {
         grid-template-columns: 1fr;
         justify-items: stretch;
@@ -2351,7 +2351,7 @@ html[data-v24-smh-theme="light"] .v24-smh-auth-shell {
     }
 }
 
-@media (max-width: 1180px) {
+@media (min-width: 801px) and (max-width: 1180px) {
     .v24-smh-shell,
     .v24-smh-dual,
     .v24-smh-contacts-shell,
@@ -2376,119 +2376,6 @@ html[data-v24-smh-theme="light"] .v24-smh-auth-shell {
 
     .v24-smh-calendar-main {
         grid-template-rows: auto auto minmax(380px, 1fr) auto;
-    }
-}
-
-@media (max-width: 760px) {
-    .v24-smh-app {
-        padding: 12px;
-    }
-
-    .v24-smh-auth-card,
-    .v24-smh-sidebar,
-    .v24-smh-list,
-    .v24-smh-reader,
-    .v24-smh-contacts-groups,
-    .v24-smh-contacts-directory,
-    .v24-smh-contacts-detail,
-    .v24-smh-module-toolbar,
-    .v24-smh-calendar-sidebar,
-    .v24-smh-calendar-main {
-        padding: 16px;
-    }
-
-    .v24-smh-brand-mark {
-        font-size: 28px;
-    }
-
-    .v24-smh-auth-brand h1,
-    .v24-smh-reader-header h2,
-    .v24-smh-compose-header h2 {
-        font-size: 26px;
-    }
-
-    .v24-smh-header-actions,
-    .v24-smh-reader-actions,
-    .v24-smh-inline-action,
-    .v24-smh-module-toolbar,
-    .v24-smh-toolbar,
-    .v24-smh-actions,
-    .v24-smh-calendar-topbar,
-    .v24-smh-calendar-topbar-left,
-    .v24-smh-calendar-topbar-right {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .v24-smh-header-meta {
-        width: 100%;
-    }
-
-    .v24-smh-contact-hero,
-    .v24-smh-contact-editor-hero,
-    .v24-smh-contact-summary-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .v24-smh-reader-row,
-    .v24-smh-reader-state {
-        grid-template-columns: 1fr;
-        gap: 6px;
-    }
-
-    .v24-smh-reader-actions-shell {
-        width: 100%;
-    }
-
-    .v24-smh-field-span-2 {
-        grid-column: auto;
-    }
-
-    .v24-smh-contact-row {
-        grid-template-columns: 1fr;
-    }
-
-    .v24-smh-contact-row > span {
-        border-right: none;
-        border-bottom: 1px solid rgba(128, 152, 205, 0.12);
-    }
-
-    .v24-smh-calendar-grid-head,
-    .v24-smh-calendar-all-day-row,
-    .v24-smh-calendar-time-grid {
-        min-width: 860px;
-    }
-
-    .v24-smh-calendar-board {
-        overflow: auto;
-    }
-
-    .v24-smh-compose,
-    .v24-smh-sheet {
-        inset: 10px;
-        padding: 16px;
-        border-radius: 24px;
-        max-height: calc(100vh - 20px);
-    }
-
-    .v24-smh-compose-layout {
-        min-height: auto;
-    }
-
-    .v24-smh-compose-editor {
-        min-height: 220px;
-    }
-
-    .v24-smh-admin-card {
-        padding: 14px;
-    }
-
-    .v24-smh-admin .widefat {
-        display: block;
-        overflow-x: auto;
-        max-width: 100%;
-        min-width: 640px;
-        -webkit-overflow-scrolling: touch;
     }
 }
 
@@ -2873,4 +2760,227 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
 .v24-smh-auth-shell[data-theme] ::-webkit-scrollbar-thumb:hover {
     background: rgba(39, 144, 200, 0.42);
     background-clip: padding-box;
+}
+
+@media (max-width: 800px) {
+    .v24-smh-header {
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        grid-template-areas:
+            "brand theme logout"
+            "nav nav nav"
+            "meta meta meta";
+        align-items: start;
+        justify-items: stretch;
+        column-gap: 10px;
+        row-gap: 12px;
+        padding: 16px;
+    }
+
+    .v24-smh-brand-block {
+        grid-area: brand;
+        min-width: 0;
+    }
+
+    .v24-smh-header-actions {
+        display: contents;
+    }
+
+    .v24-smh-module-nav {
+        grid-area: nav;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        justify-content: flex-start !important;
+        width: 100% !important;
+        gap: 8px !important;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    .v24-smh-theme-toggle {
+        grid-area: theme;
+        justify-self: end;
+        align-self: start;
+        min-width: 0;
+        padding-inline: 12px;
+    }
+
+    .v24-smh-theme-toggle-label {
+        display: none;
+    }
+
+    .v24-smh-header-actions > .v24-smh-button:last-child {
+        grid-area: logout;
+        justify-self: end;
+        align-self: start;
+        padding-inline: 18px;
+    }
+
+    .v24-smh-header-meta {
+        grid-area: meta;
+        display: grid;
+        justify-items: start;
+        gap: 4px;
+        width: 100%;
+        text-align: left;
+    }
+
+    .v24-smh-shell,
+    .v24-smh-dual,
+    .v24-smh-contacts-shell,
+    .v24-smh-admin-grid,
+    .v24-smh-detail-grid,
+    .v24-smh-form-grid,
+    .v24-smh-shell-calendar,
+    .v24-smh-calendar-shell,
+    .v24-smh-contact-hero,
+    .v24-smh-contact-editor-hero,
+    .v24-smh-contact-summary-grid,
+    .v24-smh-contact-row,
+    .v24-smh-reader-row,
+    .v24-smh-reader-state {
+        grid-template-columns: 1fr;
+    }
+
+    .v24-smh-sidebar,
+    .v24-smh-list,
+    .v24-smh-reader,
+    .v24-smh-contacts-groups,
+    .v24-smh-contacts-directory,
+    .v24-smh-contacts-detail,
+    .v24-smh-calendar-sidebar,
+    .v24-smh-calendar-main {
+        min-height: 280px;
+    }
+
+    .v24-smh-calendar-main {
+        grid-template-rows: auto auto minmax(380px, 1fr) auto;
+    }
+
+    .v24-smh-app {
+        padding: 12px;
+    }
+
+    .v24-smh-auth-card,
+    .v24-smh-sidebar,
+    .v24-smh-list,
+    .v24-smh-reader,
+    .v24-smh-contacts-groups,
+    .v24-smh-contacts-directory,
+    .v24-smh-contacts-detail,
+    .v24-smh-module-toolbar,
+    .v24-smh-calendar-sidebar,
+    .v24-smh-calendar-main {
+        padding: 16px;
+    }
+
+    .v24-smh-brand-mark {
+        font-size: 28px;
+    }
+
+    .v24-smh-auth-brand h1,
+    .v24-smh-reader-header h2,
+    .v24-smh-compose-header h2 {
+        font-size: 26px;
+    }
+
+    .v24-smh-reader-actions,
+    .v24-smh-inline-action,
+    .v24-smh-module-toolbar,
+    .v24-smh-toolbar,
+    .v24-smh-actions,
+    .v24-smh-calendar-topbar,
+    .v24-smh-calendar-topbar-left,
+    .v24-smh-calendar-topbar-right {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .v24-smh-header-meta,
+    .v24-smh-reader-actions-shell {
+        width: 100%;
+    }
+
+    .v24-smh-reader-row,
+    .v24-smh-reader-state {
+        gap: 6px;
+    }
+
+    .v24-smh-field-span-2 {
+        grid-column: auto;
+    }
+
+    .v24-smh-contact-row > span {
+        border-right: none;
+        border-bottom: 1px solid rgba(128, 152, 205, 0.12);
+    }
+
+    .v24-smh-calendar-grid-head,
+    .v24-smh-calendar-all-day-row,
+    .v24-smh-calendar-time-grid {
+        min-width: 860px;
+    }
+
+    .v24-smh-calendar-board {
+        overflow: auto;
+    }
+
+    .v24-smh-compose,
+    .v24-smh-sheet {
+        inset: 10px;
+        padding: 16px;
+        border-radius: 24px;
+        max-height: calc(100vh - 20px);
+    }
+
+    .v24-smh-compose-layout {
+        min-height: auto;
+    }
+
+    .v24-smh-compose-editor {
+        min-height: 220px;
+    }
+
+    .v24-smh-admin-card {
+        padding: 14px;
+    }
+
+    .v24-smh-admin .widefat {
+        display: block;
+        overflow-x: auto;
+        max-width: 100%;
+        min-width: 640px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .v24-smh-module-tab,
+    .v24-smh-app[data-theme] .v24-smh-module-tab,
+    .v24-smh-app[data-theme="light"] .v24-smh-module-tab {
+        width: auto !important;
+        max-width: none !important;
+        flex: 0 0 auto !important;
+        min-width: 104px !important;
+        min-height: 34px !important;
+        padding: 8px 10px !important;
+        font-size: 12px !important;
+        line-height: 1.15;
+        text-align: center;
+        white-space: nowrap;
+        border-radius: 16px;
+        box-sizing: border-box;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-module-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-module-toolbar > button {
+        width: 100%;
+        min-width: 0;
+    }
 }

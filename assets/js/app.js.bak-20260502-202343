@@ -1,0 +1,3894 @@
+(function () {
+    const app = document.querySelector('[data-v24-smh-app]');
+    const config = window.V24SMH || {
+        root: app ? app.dataset.restRoot : '',
+        nonce: app ? app.dataset.restNonce : ''
+    };
+    const currentUserId = Number(app.dataset.currentUserId || 0);
+    const initialRoute = new URLSearchParams(window.location.search);
+
+    if (!app || !config.root || !config.nonce) {
+        return;
+    }
+
+    const state = {
+        module: 'mail',
+        accounts: [],
+        accountId: null,
+        folders: [],
+        folderId: null,
+        currentMessage: null,
+        currentContact: null,
+        contacts: [],
+        contactGroup: 'all',
+        currentCalendar: null,
+        currentEvent: null,
+        currentTask: null,
+        currentRule: null,
+        calendars: [],
+        selectedCalendarId: null,
+        calendarEvents: [],
+        calendarView: 'week',
+        calendarCursor: '',
+        users: [],
+        rulesAccountId: null,
+        ruleFolders: [],
+        composeMode: 'new',
+        editingContactId: null,
+        editingCalendarId: null,
+        editingEventId: null,
+        editingTaskId: null,
+        editingRuleId: null,
+        eventEditMode: 'series',
+        initialAccountId: Number(initialRoute.get('smh_account') || 0),
+        initialFolderId: Number(initialRoute.get('smh_folder') || 0),
+        folderContextId: null
+    };
+    const ROOT_FOLDER_GROUP = '__root__';
+
+    const apiRoot = config.root.replace(/\/$/, '');
+    const region = (name) => app.querySelector(`[data-region="${name}"]`);
+    const composeField = (name) => app.querySelector(`[data-field="${name}"]`);
+    const composeWrapper = (name) => app.querySelector(`[data-compose-field="${name}"]`);
+    const composeEditor = () => composeField('body-editor');
+    const contactField = (name) => app.querySelector(`[data-field="contact-${name}"]`);
+    const calendarField = (name) => app.querySelector(`[data-field="calendar-${name}"]`);
+    const eventField = (name) => app.querySelector(`[data-field="event-${name}"]`);
+    const taskField = (name) => app.querySelector(`[data-field="task-${name}"]`);
+    const ruleField = (name) => app.querySelector(`[data-field="rule-${name}"]`);
+
+    const api = async (path, options = {}) => {
+        const response = await fetch(apiRoot + path, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-WP-Nonce': config.nonce,
+                ...(options.headers || {})
+            }
+        });
+
+        const json = await response.json();
+        if (!response.ok) {
+            throw new Error(json.message || 'Errore API');
+        }
+
+        return json;
+    };
+
+    function setStatus(message) {
+        const target = region('status');
+        if (target) {
+            target.textContent = message;
+        }
+    }
+
+    function dispatchBridgeEvent(name, detail = {}) {
+        app.dispatchEvent(new CustomEvent(name, { detail }));
+    }
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        }[char]));
+    }
+
+    function normalizeMessageBodyHtml(html, plainText) {
+        if (!html) {
+            return `<div class="v24-smh-body-content"><pre>${escapeHtml(plainText || '')}</pre></div>`;
+        }
+
+        return `<div class="v24-smh-body-content">${sanitizeMessageBodyHtml(html)}</div>`;
+    }
+
+    function sanitizeMessageBodyHtml(html) {
+        return String(html || '')
+            .replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/<\/?o:[^>]+>/gi, '')
+            .replace(/<p[^>]*class=["'][^"']*MsoNormal[^"']*["'][^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/p>/gi, '')
+            .replace(/(<div[^>]*class=["'][^"']*WordSection[^"']*["'][^>]*>)(?:\s*<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>)+/gi, '$1')
+            .replace(/(?:<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>\s*)+(<\/div>\s*)$/gi, '$1')
+            .replace(/^(?:\s*<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>)+/gi, '')
+            .replace(/(?:<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>\s*)+$/gi, '')
+            .trim();
+    }
+
+    function safeJson(value, fallback = []) {
+        if (!value) {
+            return Array.isArray(fallback) ? [...fallback] : fallback;
+        }
+
+        if (Array.isArray(value)) {
+            return value;
+        }
+
+        try {
+            const parsed = JSON.parse(value);
+            return parsed == null ? fallback : parsed;
+        } catch (error) {
+            return Array.isArray(fallback) ? [...fallback] : fallback;
+        }
+    }
+
+    function splitAddresses(value) {
+        return String(value || '')
+            .split(/[;,]/)
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    function splitCsv(value) {
+        return String(value || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+    }
+
+    function splitAttendees(value) {
+        return String(value || '')
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .map((item) => {
+                const match = item.match(/^(.*)<([^>]+)>$/);
+                if (match) {
+                    return {
+                        name: match[1].trim().replace(/^"|"$/g, ''),
+                        email: match[2].trim()
+                    };
+                }
+
+                return {
+                    name: '',
+                    email: item
+                };
+            })
+            .filter((item) => item.email);
+    }
+
+    function formatDateTime(value) {
+        if (!value) {
+            return '';
+        }
+
+        return String(value).replace(' ', 'T').slice(0, 16);
+    }
+
+    function toMysqlDateTime(value) {
+        if (!value) {
+            return '';
+        }
+
+        return `${value.replace('T', ' ')}:00`;
+    }
+
+    function formatDisplayDate(value) {
+        if (!value) {
+            return '';
+        }
+
+        const date = new Date(String(value).replace(' ', 'T'));
+        if (Number.isNaN(date.getTime())) {
+            return String(value);
+        }
+
+        return date.toLocaleString('it-IT', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+
+    function highlightSelection(target, attribute, value) {
+        if (!target) {
+            return;
+        }
+
+        target.querySelectorAll(`[${attribute}]`).forEach((element) => {
+            element.classList.toggle('is-active', String(element.getAttribute(attribute)) === String(value));
+        });
+    }
+
+    function createButton(label, className) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = className || '';
+        button.textContent = label;
+        return button;
+    }
+
+    function createOption(value, label, selected) {
+        const option = document.createElement('option');
+        option.value = String(value ?? '');
+        option.textContent = label;
+        if (selected) {
+            option.selected = true;
+        }
+        return option;
+    }
+
+    function folderPrefsKey(accountId) {
+        return `v24-smh-folder-prefs:${currentUserId}:${Number(accountId || 0)}`;
+    }
+
+    function folderOrderSeedMap(folders, seedIds = []) {
+        const entries = new Map((folders || []).map((folder, index) => [Number(folder.id), { folder, index }]));
+        const map = {};
+        const pushFolder = (folder) => {
+            const parentKey = folderParentKey(folder);
+            const folderId = Number(folder.id);
+            if (!folderId) {
+                return;
+            }
+
+            if (!map[parentKey]) {
+                map[parentKey] = [];
+            }
+
+            if (!map[parentKey].includes(folderId)) {
+                map[parentKey].push(folderId);
+            }
+        };
+
+        seedIds.forEach((folderId) => {
+            const entry = entries.get(Number(folderId));
+            if (entry) {
+                pushFolder(entry.folder);
+            }
+        });
+
+        (folders || []).forEach(pushFolder);
+        return map;
+    }
+
+    function normalizeFolderPrefs(accountId, folders, value) {
+        const knownIds = new Set((folders || []).map((folder) => Number(folder.id)).filter((id) => id > 0));
+        const source = value && typeof value === 'object' ? value : {};
+        const favorites = Array.from(new Set(safeJson(source.favorites).map((id) => Number(id)).filter((id) => knownIds.has(id))));
+        const legacyOrder = Array.from(new Set(safeJson(source.order).map((id) => Number(id)).filter((id) => knownIds.has(id))));
+        const defaultOrderMap = folderOrderSeedMap(folders, legacyOrder);
+        const rawOrderMap = source.orderMap && typeof source.orderMap === 'object' ? source.orderMap : {};
+        const orderMap = {};
+
+        Object.keys(defaultOrderMap).forEach((parentKey) => {
+            const validSiblings = new Set(defaultOrderMap[parentKey]);
+            const preferredOrder = Array.isArray(rawOrderMap[parentKey])
+                ? rawOrderMap[parentKey].map((id) => Number(id)).filter((id) => validSiblings.has(id))
+                : [];
+
+            orderMap[parentKey] = Array.from(new Set(preferredOrder));
+            defaultOrderMap[parentKey].forEach((id) => {
+                if (!orderMap[parentKey].includes(id)) {
+                    orderMap[parentKey].push(id);
+                }
+            });
+        });
+
+        return {
+            accountId: Number(accountId || 0),
+            favorites,
+            orderMap
+        };
+    }
+
+    function readFolderPrefs(accountId, folders = state.folders) {
+        if (!accountId) {
+            return normalizeFolderPrefs(accountId, folders, null);
+        }
+
+        try {
+            const raw = window.localStorage.getItem(folderPrefsKey(accountId));
+            return normalizeFolderPrefs(accountId, folders, raw ? JSON.parse(raw) : null);
+        } catch (error) {
+            return normalizeFolderPrefs(accountId, folders, null);
+        }
+    }
+
+    function writeFolderPrefs(accountId, prefs, folders = state.folders) {
+        const normalized = normalizeFolderPrefs(accountId, folders, prefs);
+        if (!accountId) {
+            return normalized;
+        }
+
+        try {
+            window.localStorage.setItem(folderPrefsKey(accountId), JSON.stringify(normalized));
+        } catch (error) {
+            return normalized;
+        }
+
+        return normalized;
+    }
+
+    function folderUrl(folder) {
+        const url = new URL(window.location.href);
+        const accountId = Number(folder?.account_id || state.accountId || 0);
+        const folderId = Number(folder?.id || state.folderId || 0);
+
+        if (accountId) {
+            url.searchParams.set('smh_account', String(accountId));
+        } else {
+            url.searchParams.delete('smh_account');
+        }
+
+        if (folderId) {
+            url.searchParams.set('smh_folder', String(folderId));
+        } else {
+            url.searchParams.delete('smh_folder');
+        }
+
+        return url.toString();
+    }
+
+    function syncFolderRoute() {
+        if (!window.history || typeof window.history.replaceState !== 'function') {
+            return;
+        }
+
+        window.history.replaceState({}, '', folderUrl());
+    }
+
+    function boolFromSelect(value) {
+        if (value === '' || value === null || value === undefined) {
+            return null;
+        }
+
+        return String(value) === '1';
+    }
+
+    function syncComposeBody() {
+        const editor = composeEditor();
+        const hidden = composeField('body');
+        if (!editor || !hidden) {
+            return '';
+        }
+
+        const html = editor.innerHTML || '';
+        hidden.value = html.trim();
+        return hidden.value;
+    }
+
+    function setComposeBodyHtml(html) {
+        const editor = composeEditor();
+        if (!editor) {
+            return;
+        }
+
+        editor.innerHTML = html || '';
+        syncComposeBody();
+    }
+
+    function closeCompose() {
+        const compose = region('compose');
+        if (compose) {
+            compose.hidden = true;
+        }
+        dispatchBridgeEvent('v24-smh-compose-closed', {
+            accountId: state.accountId,
+            composeMode: state.composeMode
+        });
+    }
+
+    function renderComposeContext(message, mode) {
+        const target = region('compose-context');
+        if (!target) {
+            return;
+        }
+
+        if (!message || !['reply', 'reply_all', 'forward'].includes(mode)) {
+            target.hidden = true;
+            target.innerHTML = '';
+            return;
+        }
+
+        const preview = (message.body_plain || '').trim().slice(0, 420);
+        target.hidden = false;
+        target.innerHTML = `
+            <strong>Contesto originale</strong>
+            <span>${escapeHtml(message.from_name || message.from_email || '')} | ${escapeHtml(message.subject || '')}</span>
+            <p>${escapeHtml(preview || 'Contenuto disponibile nel pannello messaggio.')}</p>
+        `;
+    }
+
+    function insertIntoCompose(html, subject) {
+        const editor = composeEditor();
+        if (!editor) {
+            return;
+        }
+
+        const insertHtml = String(html || '').trim();
+        if (!insertHtml) {
+            return;
+        }
+
+        if (subject) {
+            composeField('subject').value = subject;
+        }
+
+        const current = editor.innerHTML || '';
+        const signatureRegex = /<div[^>]*id=["']?_rc_sig["']?[^>]*>[\s\S]*?<\/div>/i;
+        const markerRegex = /<div[^>]*data-v24-smh-signature[^>]*>[\s\S]*?<\/div>/i;
+        const plainSignature = /\n--\s*\n[\s\S]*$/i;
+        const signatureMatch = current.match(signatureRegex) || current.match(markerRegex);
+        const hasRichSignature = Boolean(signatureMatch);
+        const spacer = current.trim() ? '<br><br>' : '';
+
+        if (state.composeMode === 'reply' || state.composeMode === 'reply_all') {
+            if (hasRichSignature && signatureMatch) {
+                const signatureHtml = signatureMatch[0];
+                const withoutSignature = current.replace(signatureMatch[0], '');
+                editor.innerHTML = `${insertHtml}${spacer}${withoutSignature}${signatureHtml}`;
+            } else {
+                editor.innerHTML = `${insertHtml}${spacer}${current}`;
+            }
+        } else if (hasRichSignature && signatureMatch) {
+            editor.innerHTML = current.replace(signatureMatch[0], `${insertHtml}${spacer}${signatureMatch[0]}`);
+        } else if (plainSignature.test(current)) {
+            editor.innerHTML = current.replace(plainSignature, `${insertHtml}${spacer}$&`);
+        } else if (!current.trim()) {
+            editor.innerHTML = insertHtml;
+        } else {
+            editor.innerHTML = `${current}${spacer}${insertHtml}`;
+        }
+
+        syncComposeBody();
+        editor.focus();
+    }
+
+    window.V24SMHBridge = {
+        api,
+        app,
+        getState: () => ({ ...state }),
+        setStatus,
+        closeCompose,
+        insertIntoCompose,
+        syncComposeBody,
+        setComposeBodyHtml,
+        composeField: (name) => composeField(name),
+        composeEditor,
+    };
+
+    function renderTagList(items, emptyText) {
+        if (!items || !items.length) {
+            return `<p>${escapeHtml(emptyText)}</p>`;
+        }
+
+        return `<div class="v24-smh-pill-list">${items.map((item) => `<span class="v24-smh-pill">${escapeHtml(item)}</span>`).join('')}</div>`;
+    }
+
+    function folderSourceName(folder) {
+        return String(folder?.name || folder?.full_name || folder?.remote_id || '').trim();
+    }
+
+    function folderFullName(folder) {
+        return String(folder?.full_name || folderSourceName(folder) || '').trim();
+    }
+
+    function folderDelimiter(folder) {
+        const explicit = String(folder?.delimiter || '').trim();
+        if (explicit) {
+            return explicit;
+        }
+
+        const fullName = folderFullName(folder);
+        if (fullName.includes('.')) {
+            return '.';
+        }
+
+        return '/';
+    }
+
+    function folderAliasLabel(value) {
+        const source = String(value || '').trim();
+        const normalized = source.toLowerCase();
+
+        const aliases = [
+            { matches: ['trash', 'cestino'], label: 'Cestino' },
+            { matches: ['sent', 'sent items', 'posta inviata'], label: 'Posta inviata' },
+            { matches: ['drafts', 'draft', 'bozze'], label: 'Bozze' },
+            { matches: ['archive', 'archives', 'archivio'], label: 'Archivio' },
+            { matches: ['junk', 'posta indesiderata'], label: 'Posta indesiderata' },
+            { matches: ['spam'], label: 'Spam' },
+        ];
+
+        const match = aliases.find((entry) => entry.matches.some((item) => normalized === item || normalized.includes(item)));
+        return match ? match.label : (source || 'Cartella');
+    }
+
+    function isInboxFolder(folder) {
+        const source = folderSourceName(folder).toUpperCase();
+        return folder?.special_use === 'inbox'
+            || source === 'INBOX'
+            || String(folder?.full_name || '').toUpperCase() === 'INBOX'
+            || String(folder?.remote_id || '').toUpperCase() === 'INBOX';
+    }
+
+    function folderParentKey(folder) {
+        const delimiter = folderDelimiter(folder);
+        const fullName = folderFullName(folder);
+        if (!fullName) {
+            return ROOT_FOLDER_GROUP;
+        }
+
+        const parts = fullName.split(delimiter).filter(Boolean);
+        if (parts.length <= 1) {
+            return ROOT_FOLDER_GROUP;
+        }
+
+        return parts.slice(0, -1).join(delimiter);
+    }
+
+    function folderDepth(folder) {
+        const parentKey = folderParentKey(folder);
+        if (parentKey === ROOT_FOLDER_GROUP) {
+            return 0;
+        }
+
+        return parentKey.split(folderDelimiter(folder)).filter(Boolean).length;
+    }
+
+    function folderHasChildren(folder, folders = state.folders) {
+        const parentFullName = folderFullName(folder);
+        return (folders || []).some((candidate) => folderParentKey(candidate) === parentFullName);
+    }
+
+    function folderDisplayName(folder) {
+        if (!folder) {
+            return 'Cartella';
+        }
+
+        if (isInboxFolder(folder)) {
+            return 'INBOX';
+        }
+
+        const source = folderSourceName(folder).replace(/^INBOX[./]/i, '').trim();
+        return folderAliasLabel(source || 'Cartella');
+    }
+
+    function folderDisplayCount(folder) {
+        const messageCount = Number(folder?.message_count);
+        if (Number.isFinite(messageCount)) {
+            return messageCount;
+        }
+
+        const unseenCount = Number(folder?.unseen_count);
+        if (Number.isFinite(unseenCount)) {
+            return unseenCount;
+        }
+
+        return null;
+    }
+
+    function folderDisplayLabel(folder) {
+        const count = folderDisplayCount(folder);
+        return count === null ? folderDisplayName(folder) : `${folderDisplayName(folder)} (${count})`;
+    }
+
+    function currentFolder() {
+        return state.folders.find((folder) => Number(folder.id) === Number(state.folderId)) || null;
+    }
+
+    function folderById(id) {
+        return state.folders.find((folder) => Number(folder.id) === Number(id)) || null;
+    }
+
+    function folderBaseName(folder) {
+        const delimiter = folderDelimiter(folder);
+        const fullName = folderFullName(folder);
+        const parts = fullName.split(delimiter).filter(Boolean);
+        return parts[parts.length - 1] || fullName || folderDisplayName(folder);
+    }
+
+    function folderListName(folder) {
+        if (isInboxFolder(folder)) {
+            return 'INBOX';
+        }
+
+        return folderAliasLabel(folderBaseName(folder));
+    }
+
+    function folderListLabel(folder) {
+        const count = folderDisplayCount(folder);
+        const name = folderListName(folder);
+        return count === null ? name : `${name} (${count})`;
+    }
+
+    function folderSecondaryLabel(folder) {
+        if (!folder) {
+            return '';
+        }
+
+        const parentKey = folderParentKey(folder);
+        if (!parentKey || parentKey === ROOT_FOLDER_GROUP || parentKey.toUpperCase() === 'INBOX') {
+            return '';
+        }
+
+        return parentKey.replace(/^INBOX[./]/i, '');
+    }
+
+    function isProtectedFolder(folder) {
+        return Boolean(folder?.special_use) || isInboxFolder(folder);
+    }
+
+    function isFavoriteFolder(folder) {
+        if (!folder || !state.accountId) {
+            return false;
+        }
+
+        return readFolderPrefs(state.accountId, state.folders).favorites.includes(Number(folder.id));
+    }
+
+    function sortFolderEntries(entries, parentKey, orderMap = {}) {
+        const orderIndex = new Map(((orderMap[parentKey] || [])).map((id, index) => [Number(id), index]));
+        return [...entries].sort((left, right) => {
+            const inboxWeight = Number(isInboxFolder(right.folder)) - Number(isInboxFolder(left.folder));
+            if (inboxWeight !== 0) {
+                return inboxWeight;
+            }
+
+            const leftOrder = orderIndex.has(Number(left.folder.id)) ? orderIndex.get(Number(left.folder.id)) : Number.MAX_SAFE_INTEGER;
+            const rightOrder = orderIndex.has(Number(right.folder.id)) ? orderIndex.get(Number(right.folder.id)) : Number.MAX_SAFE_INTEGER;
+            if (leftOrder !== rightOrder) {
+                return leftOrder - rightOrder;
+            }
+
+            return left.index - right.index;
+        });
+    }
+
+    function orderedFolderSiblings(parentKey, folders = state.folders) {
+        const prefs = readFolderPrefs(state.accountId, folders);
+        const entries = (folders || [])
+            .map((folder, index) => ({ folder, index }))
+            .filter((entry) => folderParentKey(entry.folder) === parentKey);
+
+        return sortFolderEntries(entries, parentKey, prefs.orderMap).map((entry) => entry.folder);
+    }
+
+    function foldersForDisplay(folders) {
+        const prefs = readFolderPrefs(state.accountId, folders);
+        const entriesByParent = new Map();
+        const flattened = [];
+        const visited = new Set();
+
+        (folders || []).forEach((folder, index) => {
+            const parentKey = folderParentKey(folder);
+            if (!entriesByParent.has(parentKey)) {
+                entriesByParent.set(parentKey, []);
+            }
+
+            entriesByParent.get(parentKey).push({ folder, index });
+        });
+
+        const visit = (parentKey) => {
+            const entries = entriesByParent.get(parentKey) || [];
+            sortFolderEntries(entries, parentKey, prefs.orderMap).forEach((entry) => {
+                const folderId = Number(entry.folder.id);
+                if (visited.has(folderId)) {
+                    return;
+                }
+
+                visited.add(folderId);
+                flattened.push(entry.folder);
+                visit(folderFullName(entry.folder));
+            });
+        };
+
+        visit(ROOT_FOLDER_GROUP);
+
+        (folders || []).forEach((folder) => {
+            const folderId = Number(folder.id);
+            if (!visited.has(folderId)) {
+                flattened.push(folder);
+            }
+        });
+
+        return flattened;
+    }
+
+    function folderOrderIds() {
+        return foldersForDisplay(state.folders).map((folder) => Number(folder.id));
+    }
+
+    function canMoveFolderInSidebar(folder, direction) {
+        if (!folder) {
+            return false;
+        }
+
+        const siblings = orderedFolderSiblings(folderParentKey(folder));
+        const ids = siblings.map((item) => Number(item.id));
+        const currentIndex = ids.indexOf(Number(folder.id));
+        const targetIndex = currentIndex + direction;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ids.length) {
+            return false;
+        }
+
+        const targetFolder = folderById(ids[targetIndex]);
+        return !isInboxFolder(folder) && !isInboxFolder(targetFolder);
+    }
+
+    function updateFolderContextHighlight() {
+        const target = region('folders');
+        if (!target) {
+            return;
+        }
+
+        target.querySelectorAll('[data-folder-id]').forEach((element) => {
+            element.classList.toggle('is-context-active', String(element.getAttribute('data-folder-id')) === String(state.folderContextId));
+        });
+    }
+
+    function ensureFolderContextMenu() {
+        let menu = region('folder-context-menu');
+        if (menu) {
+            return menu;
+        }
+
+        menu = document.createElement('div');
+        menu.hidden = true;
+        menu.className = 'v24-smh-context-menu';
+        menu.setAttribute('data-region', 'folder-context-menu');
+        menu.addEventListener('click', (event) => event.stopPropagation());
+        menu.addEventListener('contextmenu', (event) => event.preventDefault());
+        app.appendChild(menu);
+        return menu;
+    }
+
+    function closeFolderContextMenu() {
+        const menu = ensureFolderContextMenu();
+        menu.hidden = true;
+        menu.innerHTML = '';
+        state.folderContextId = null;
+        updateFolderContextHighlight();
+    }
+
+    function folderMenuItems(folder) {
+        const favorite = isFavoriteFolder(folder);
+        return [
+            { action: 'open-window', label: "Apri in un'altra finestra" },
+            { type: 'separator' },
+            { action: 'new-folder', label: 'Nuova cartella...' },
+            { action: 'rename-folder', label: 'Rinomina cartella', disabled: isProtectedFolder(folder) },
+            { action: 'copy-folder', label: 'Copia cartella' },
+            { action: 'move-folder', label: 'Sposta cartella', disabled: isProtectedFolder(folder) },
+            { action: 'delete-folder', label: 'Elimina cartella', disabled: isProtectedFolder(folder), danger: true },
+            { type: 'separator' },
+            { action: 'mark-read-folder', label: 'Segna tutti come gia letti' },
+            { action: 'empty-folder', label: 'Pulisci cartella' },
+            { action: 'purge-folder', label: 'Elimina tutto', danger: true },
+            { type: 'separator' },
+            { action: 'sync-imap-folders', label: 'Cartelle IMAP...' },
+            { action: 'toggle-favorite-folder', label: favorite ? 'Rimuovi dai Preferiti' : 'Aggiungi a Preferiti', checked: favorite },
+            { action: 'sort-folder-az', label: 'Ordina sottocartelle da A a Z', disabled: !folderHasChildren(folder) },
+            { action: 'folder-move-up', label: 'Sposta su', disabled: !canMoveFolderInSidebar(folder, -1) },
+            { action: 'folder-move-down', label: 'Sposta giu', disabled: !canMoveFolderInSidebar(folder, 1) },
+            { type: 'separator' },
+            { action: 'folder-properties', label: 'Proprieta...' }
+        ];
+    }
+
+    function renderFolderContextMenu(folder) {
+        const menu = ensureFolderContextMenu();
+        menu.innerHTML = folderMenuItems(folder).map((item) => {
+            if (item.type === 'separator') {
+                return '<div class="v24-smh-context-menu-separator"></div>';
+            }
+
+            return `
+                <button
+                    type="button"
+                    class="v24-smh-context-menu-item${item.danger ? ' is-danger' : ''}"
+                    data-folder-menu-action="${item.action}"
+                    ${item.disabled ? 'disabled' : ''}
+                >
+                    <span>${escapeHtml(item.label)}</span>
+                    ${item.checked ? '<span class="v24-smh-context-menu-check" aria-hidden="true">&#9733;</span>' : ''}
+                </button>
+            `;
+        }).join('');
+        return menu;
+    }
+
+    function showFolderContextMenu(folder, clientX, clientY) {
+        if (!folder) {
+            return;
+        }
+
+        state.folderContextId = Number(folder.id);
+        updateFolderContextHighlight();
+
+        const menu = renderFolderContextMenu(folder);
+        menu.hidden = false;
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+
+        const padding = 12;
+        const maxLeft = Math.max(padding, window.innerWidth - menu.offsetWidth - padding);
+        const maxTop = Math.max(padding, window.innerHeight - menu.offsetHeight - padding);
+        const left = Math.min(Math.max(padding, clientX), maxLeft);
+        const top = Math.min(Math.max(padding, clientY), maxTop);
+
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    function renderEnvelopeIcon(isSeen) {
+        const svg = isSeen
+            ? `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3.5 9.5 12 14l8.5-4.5" />
+                    <path d="M5 8h14a1.5 1.5 0 0 1 1.5 1.5v8A1.5 1.5 0 0 1 19 19H5A1.5 1.5 0 0 1 3.5 17.5v-8A1.5 1.5 0 0 1 5 8Z" />
+                    <path d="M3.5 9.5 8 5h8l4.5 4.5" />
+                </svg>
+            `
+            : `
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M4 7.5h16A1.5 1.5 0 0 1 21.5 9v8A1.5 1.5 0 0 1 20 18.5H4A1.5 1.5 0 0 1 2.5 17V9A1.5 1.5 0 0 1 4 7.5Z" />
+                    <path d="M3.5 9 12 14l8.5-5" />
+                </svg>
+            `;
+
+        return `<span class="v24-smh-envelope-icon${isSeen ? ' is-open' : ' is-closed'}">${svg}</span>`;
+    }
+
+    function updateMailListHeader(messageCount) {
+        const captionTarget = region('messages-caption');
+        const countTarget = region('messages-count');
+        const folder = currentFolder();
+        const searchValue = region('search') ? region('search').value.trim() : '';
+        const baseLabel = folder ? folderDisplayName(folder) : 'Seleziona una cartella';
+
+        if (captionTarget) {
+            captionTarget.textContent = searchValue ? `Risultati in ${baseLabel}` : baseLabel;
+        }
+
+        if (countTarget) {
+            countTarget.textContent = String(Number(messageCount || 0));
+        }
+    }
+
+    function slugify(value) {
+        const normalized = String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        return normalized || 'group';
+    }
+
+    function contactDisplayName(contact) {
+        return contact.display_name
+            || [contact.first_name, contact.last_name].filter(Boolean).join(' ')
+            || contact.primary_email
+            || 'Contatto senza nome';
+    }
+
+    function contactInitials(contact) {
+        const tokens = contactDisplayName(contact).split(/\s+/).filter(Boolean);
+        return (tokens.slice(0, 2).map((token) => token.charAt(0).toUpperCase()).join('') || 'CT').slice(0, 2);
+    }
+
+    function contactGroupsFor(contact) {
+        const groups = [];
+
+        safeJson(contact.categories_json).forEach((category) => {
+            const label = String(category || '').trim();
+            if (!label) {
+                return;
+            }
+
+            groups.push({
+                section: 'Categorie',
+                key: `cat:${slugify(label)}`,
+                label
+            });
+        });
+
+        if (contact.company) {
+            groups.push({
+                section: 'Aziende',
+                key: `company:${slugify(contact.company)}`,
+                label: contact.company
+            });
+        }
+
+        return Array.from(new Map(groups.map((group) => [group.key, group])).values());
+    }
+
+    function buildContactGroupCatalog(contacts) {
+        const catalog = [{
+            section: 'Contatti',
+            key: 'all',
+            label: 'Contatti personali',
+            hint: 'Tutte le schede',
+            count: contacts.length
+        }];
+
+        const ungroupedCount = contacts.filter((contact) => !contactGroupsFor(contact).length).length;
+        if (ungroupedCount) {
+            catalog.push({
+                section: 'Contatti',
+                key: 'ungrouped',
+                label: 'Senza gruppo',
+                hint: 'Contatti non classificati',
+                count: ungroupedCount
+            });
+        }
+
+        const map = new Map();
+        contacts.forEach((contact) => {
+            contactGroupsFor(contact).forEach((group) => {
+                const existing = map.get(group.key) || {
+                    section: group.section,
+                    key: group.key,
+                    label: group.label,
+                    hint: group.section === 'Categorie' ? 'Categoria contatto' : 'Azienda collegata',
+                    count: 0
+                };
+                existing.count += 1;
+                map.set(group.key, existing);
+            });
+        });
+
+        return catalog.concat(Array.from(map.values()).sort((left, right) => (
+            left.section.localeCompare(right.section, 'it') || left.label.localeCompare(right.label, 'it')
+        )));
+    }
+
+    function contactBelongsToGroup(contact, groupKey) {
+        if (groupKey === 'all') {
+            return true;
+        }
+
+        const groups = contactGroupsFor(contact);
+        if (groupKey === 'ungrouped') {
+            return !groups.length;
+        }
+
+        return groups.some((group) => group.key === groupKey);
+    }
+
+    function getVisibleContacts() {
+        return state.contacts.filter((contact) => contactBelongsToGroup(contact, state.contactGroup));
+    }
+
+    function renderContactEmptyState(message, title = 'Nessun contatto selezionato') {
+        region('contact-reader').innerHTML = `
+            <div class="v24-smh-contact-empty">
+                <div class="v24-smh-contact-avatar v24-smh-contact-avatar-xl v24-smh-contact-avatar-ghost">CT</div>
+                <h2>${escapeHtml(title)}</h2>
+                <p>${escapeHtml(message)}</p>
+            </div>
+        `;
+    }
+
+    function showContactReaderPanel() {
+        const readerPanel = region('contact-reader-panel');
+        if (readerPanel) {
+            readerPanel.hidden = false;
+        }
+
+        const formPanel = region('contact-form-sheet');
+        if (formPanel) {
+            formPanel.hidden = true;
+        }
+    }
+
+    function showContactFormPanel() {
+        const readerPanel = region('contact-reader-panel');
+        if (readerPanel) {
+            readerPanel.hidden = true;
+        }
+
+        const formPanel = region('contact-form-sheet');
+        if (formPanel) {
+            formPanel.hidden = false;
+        }
+    }
+
+    function renderContactGroups() {
+        const target = region('contact-groups');
+        if (!target) {
+            return;
+        }
+
+        const groups = buildContactGroupCatalog(state.contacts);
+        if (!groups.some((group) => group.key === state.contactGroup)) {
+            state.contactGroup = 'all';
+        }
+
+        const query = String(region('contact-groups-search')?.value || '').trim().toLowerCase();
+        const filteredGroups = query
+            ? groups.filter((group) => (
+                group.label.toLowerCase().includes(query)
+                || group.section.toLowerCase().includes(query)
+                || String(group.hint || '').toLowerCase().includes(query)
+            ))
+            : groups;
+
+        if (!filteredGroups.length) {
+            target.innerHTML = '<p>Nessun gruppo trovato.</p>';
+            return;
+        }
+
+        const sections = filteredGroups.reduce((collection, group) => {
+            if (!collection.has(group.section)) {
+                collection.set(group.section, []);
+            }
+            collection.get(group.section).push(group);
+            return collection;
+        }, new Map());
+
+        target.innerHTML = Array.from(sections.entries()).map(([section, sectionGroups]) => `
+            <section class="v24-smh-contact-group-section">
+                <h3>${escapeHtml(section)}</h3>
+                ${sectionGroups.map((group) => `
+                    <button
+                        type="button"
+                        class="v24-smh-contact-group${group.key === state.contactGroup ? ' is-active' : ''}"
+                        data-action="select-contact-group"
+                        data-group-key="${escapeHtml(group.key)}"
+                    >
+                        <strong>${escapeHtml(group.label)}</strong>
+                        <span>${escapeHtml(group.hint || '')}</span>
+                        <small>${group.count} contatti</small>
+                    </button>
+                `).join('')}
+            </section>
+        `).join('');
+    }
+
+    function renderContactList() {
+        const target = region('contacts');
+        if (!target) {
+            return;
+        }
+
+        const groups = buildContactGroupCatalog(state.contacts);
+        const activeGroup = groups.find((group) => group.key === state.contactGroup) || groups[0] || {
+            label: 'Contatti personali',
+            count: 0
+        };
+        const visibleContacts = getVisibleContacts();
+
+        const groupLabel = region('contact-group-label');
+        if (groupLabel) {
+            groupLabel.textContent = activeGroup.label;
+        }
+
+        const counter = region('contacts-count');
+        if (counter) {
+            counter.textContent = `${visibleContacts.length} contatti`;
+        }
+
+        target.innerHTML = '';
+
+        if (!visibleContacts.length) {
+            target.innerHTML = `
+                <div class="v24-smh-contact-list-empty">
+                    <strong>Nessun contatto</strong>
+                    <p>Prova a cambiare gruppo oppure crea una nuova scheda.</p>
+                </div>
+            `;
+            if (region('contact-form-sheet').hidden) {
+                state.currentContact = null;
+                renderContactEmptyState('Modifica il filtro o crea un nuovo contatto per iniziare.');
+            }
+            return;
+        }
+
+        visibleContacts.forEach((contact) => {
+            const button = document.createElement('button');
+            const tags = Array.from(new Set([
+                ...safeJson(contact.categories_json),
+                contact.company
+            ].filter(Boolean))).slice(0, 3);
+
+            button.type = 'button';
+            button.className = 'v24-smh-record v24-smh-contact-record';
+            button.setAttribute('data-contact-id', contact.id);
+            button.innerHTML = `
+                <div class="v24-smh-contact-record-main">
+                    <div class="v24-smh-contact-avatar">${escapeHtml(contactInitials(contact))}</div>
+                    <div class="v24-smh-contact-record-copy">
+                        <strong>${escapeHtml(contactDisplayName(contact))}</strong>
+                        <span>${escapeHtml(contact.primary_email || contact.company || 'Nessuna email')}</span>
+                        <small>${escapeHtml([contact.company, contact.department, contact.job_title].filter(Boolean).join(' | ') || 'Scheda contatto disponibile')}</small>
+                    </div>
+                </div>
+                ${tags.length ? `<div class="v24-smh-message-meta">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>` : ''}
+            `;
+            button.addEventListener('click', () => openContact(contact.id));
+            target.appendChild(button);
+        });
+
+        highlightSelection(target, 'data-contact-id', state.currentContact ? state.currentContact.id : '');
+
+        if (
+            state.currentContact
+            && !visibleContacts.some((contact) => String(contact.id) === String(state.currentContact.id))
+            && region('contact-form-sheet').hidden
+        ) {
+            state.currentContact = null;
+            renderContactEmptyState('Il contatto selezionato non rientra nel filtro attuale.');
+        }
+    }
+
+    function renderRecipients(recipients) {
+        const items = (recipients || []).map((recipient) => {
+            const type = escapeHtml(recipient.type || 'to');
+            const value = escapeHtml(recipient.name || recipient.email || '');
+            return `${type}: ${value}`;
+        }).filter(Boolean);
+
+        if (!items.length) {
+            return '<span class="v24-smh-inline-recipients">Nessun destinatario</span>';
+        }
+
+        return `<span class="v24-smh-inline-recipients">${items.join(' | ')}</span>`;
+    }
+
+    function renderAttachments(attachments) {
+        if (!attachments || !attachments.length) {
+            return '<p>Nessun allegato.</p>';
+        }
+
+        return attachments.map((attachment) => `
+            <button type="button" class="v24-smh-attachment" data-action="download-attachment" data-attachment-id="${attachment.id}">
+                ${escapeHtml(attachment.filename || 'Allegato')} (${escapeHtml(attachment.mime_type || '')})
+            </button>
+        `).join('');
+    }
+
+    function renderAttendees(attendees) {
+        if (!attendees || !attendees.length) {
+            return '<p>Nessun partecipante.</p>';
+        }
+
+        return `
+            <div class="v24-smh-pill-list">
+                ${attendees.map((attendee) => `<span class="v24-smh-pill">${escapeHtml(attendee.name || attendee.email)} (${escapeHtml(attendee.role || 'required')})</span>`).join('')}
+            </div>
+        `;
+    }
+
+    function recurrenceSummary(recurrence) {
+        if (!recurrence || !recurrence.frequency || recurrence.frequency === 'none') {
+            return 'Evento singolo';
+        }
+
+        const every = Number(recurrence.interval || 1);
+        const base = {
+            daily: `Ogni ${every} giorno${every > 1 ? 'i' : ''}`,
+            weekly: `Ogni ${every} settimana${every > 1 ? 'e' : ''}`,
+            monthly: `Ogni ${every} mese${every > 1 ? 'i' : ''}`,
+            yearly: `Ogni ${every} anno${every > 1 ? 'i' : ''}`
+        }[recurrence.frequency] || 'Ricorrenza personalizzata';
+
+        const details = [];
+        if (recurrence.weekdays && recurrence.weekdays.length) {
+            details.push(recurrence.weekdays.join(', '));
+        }
+        if (recurrence.months && recurrence.months.length) {
+            details.push(`mesi ${recurrence.months.join(', ')}`);
+        }
+        if (recurrence.until) {
+            details.push(`fino al ${formatDisplayDate(recurrence.until)}`);
+        } else if (recurrence.count) {
+            details.push(`${recurrence.count} occorrenze`);
+        }
+
+        return [base, details.join(' | ')].filter(Boolean).join(' - ');
+    }
+
+    function resolvePreferredFolder(folders) {
+        return folders.find((folder) => folder.special_use === 'inbox')
+            || folders.find((folder) => folder.full_name === 'INBOX')
+            || folders.find((folder) => folder.remote_id === 'INBOX')
+            || folders.find((folder) => folder.name === 'INBOX')
+            || folders[0]
+            || null;
+    }
+
+    function selectedEditableCalendarId() {
+        const editableSelected = state.calendars.find((calendar) => Number(calendar.id) === Number(state.selectedCalendarId) && calendar.can_edit);
+        if (editableSelected) {
+            return editableSelected.id;
+        }
+
+        const firstEditable = state.calendars.find((calendar) => calendar.can_edit);
+        return firstEditable ? firstEditable.id : '';
+    }
+
+    function pad2(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function parseDateOnly(value) {
+        if (!value) {
+            const now = new Date();
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        }
+
+        const parts = String(value).split('-').map((part) => Number(part));
+        return new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1);
+    }
+
+    function formatDateOnly(value) {
+        const date = value instanceof Date ? value : parseDateOnly(value);
+        return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+    }
+
+    function cloneDate(value) {
+        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+    }
+
+    function parseDateTimeValue(value) {
+        if (!value) {
+            return new Date();
+        }
+
+        return new Date(String(value).replace(' ', 'T'));
+    }
+
+    function addDays(value, amount) {
+        const date = cloneDate(value);
+        date.setDate(date.getDate() + amount);
+        return date;
+    }
+
+    function startOfWeek(value) {
+        const date = cloneDate(value);
+        const dayIndex = (date.getDay() + 6) % 7;
+        date.setDate(date.getDate() - dayIndex);
+        return date;
+    }
+
+    function endOfWeek(value) {
+        return addDays(startOfWeek(value), 6);
+    }
+
+    function startOfMonth(value) {
+        return new Date(value.getFullYear(), value.getMonth(), 1);
+    }
+
+    function endOfMonth(value) {
+        return new Date(value.getFullYear(), value.getMonth() + 1, 0);
+    }
+
+    function startOfMonthGrid(value) {
+        return startOfWeek(startOfMonth(value));
+    }
+
+    function endOfMonthGrid(value) {
+        return addDays(startOfWeek(endOfMonth(value)), 6);
+    }
+
+    function sameDay(first, second) {
+        return Boolean(first && second)
+            && first.getFullYear() === second.getFullYear()
+            && first.getMonth() === second.getMonth()
+            && first.getDate() === second.getDate();
+    }
+
+    function calendarCurrentDate() {
+        if (!state.calendarCursor) {
+            state.calendarCursor = formatDateOnly(new Date());
+        }
+
+        return parseDateOnly(state.calendarCursor);
+    }
+
+    function currentCalendarRange() {
+        const current = calendarCurrentDate();
+
+        if (state.calendarView === 'day') {
+            return {
+                startDate: current,
+                endDate: current
+            };
+        }
+
+        if (state.calendarView === 'month') {
+            return {
+                startDate: startOfMonthGrid(current),
+                endDate: endOfMonthGrid(current)
+            };
+        }
+
+        if (state.calendarView === 'agenda') {
+            return {
+                startDate: current,
+                endDate: addDays(current, 29)
+            };
+        }
+
+        return {
+            startDate: startOfWeek(current),
+            endDate: endOfWeek(current)
+        };
+    }
+
+    function syncCalendarRangeFields() {
+        const range = currentCalendarRange();
+        const startInput = region('calendar-start');
+        const endInput = region('calendar-end');
+
+        if (startInput) {
+            startInput.value = formatDateOnly(range.startDate);
+        }
+        if (endInput) {
+            endInput.value = formatDateOnly(range.endDate);
+        }
+    }
+
+    function calendarSearchQuery() {
+        return String(region('calendar-search') ? region('calendar-search').value : '').trim().toLowerCase();
+    }
+
+    function calendarFilterQuery() {
+        return String(region('calendar-filter') ? region('calendar-filter').value : '').trim().toLowerCase();
+    }
+
+    function filteredCalendarEvents() {
+        const query = calendarSearchQuery();
+        if (!query) {
+            return [...state.calendarEvents];
+        }
+
+        return state.calendarEvents.filter((calendarEvent) => {
+            const haystack = [
+                calendarEvent.title,
+                calendarEvent.location,
+                calendarEvent.description,
+                calendarEvent.calendar_name,
+                (calendarEvent.attendees || []).map((attendee) => attendee.name || attendee.email).join(' ')
+            ].join(' ').toLowerCase();
+
+            return haystack.includes(query);
+        });
+    }
+
+    function calendarEventKey(calendarEvent) {
+        return calendarEvent.occurrence_key || `event-${calendarEvent.id}`;
+    }
+
+    function calendarEventColor(calendarEvent) {
+        const owner = state.calendars.find((calendar) => Number(calendar.id) === Number(calendarEvent.calendar_id));
+        return owner && owner.color ? owner.color : '#0d5c63';
+    }
+
+    function calendarDateRange(startDate, endDate) {
+        const items = [];
+        for (let cursor = cloneDate(startDate); cursor <= endDate; cursor = addDays(cursor, 1)) {
+            items.push(cloneDate(cursor));
+        }
+        return items;
+    }
+
+    function calendarHourLabel(hour) {
+        return `${pad2(hour)}:00`;
+    }
+
+    function filteredCalendars() {
+        const query = calendarFilterQuery();
+        if (!query) {
+            return [...state.calendars];
+        }
+
+        return state.calendars.filter((calendar) => [calendar.name, calendar.owner_name, calendar.description].join(' ').toLowerCase().includes(query));
+    }
+
+    function highlightCalendarEventSelection(eventKey) {
+        app.querySelectorAll('[data-event-key]').forEach((element) => {
+            element.classList.toggle('is-active', String(element.getAttribute('data-event-key')) === String(eventKey));
+        });
+    }
+
+    function updateCalendarViewButtons() {
+        app.querySelectorAll('[data-action="switch-calendar-view"]').forEach((button) => {
+            button.classList.toggle('is-active', button.getAttribute('data-view') === state.calendarView);
+        });
+    }
+
+    function formatCalendarDayLabel(value, options = {}) {
+        return value.toLocaleDateString('it-IT', {
+            weekday: options.longWeekday ? 'long' : 'short',
+            day: 'numeric',
+            month: options.longMonth ? 'long' : 'short'
+        });
+    }
+
+    function updateCalendarPeriod() {
+        const range = currentCalendarRange();
+        const titleTarget = region('calendar-period-label');
+        const subtitleTarget = region('calendar-period-subtitle');
+
+        let label = '';
+        if (state.calendarView === 'day') {
+            label = calendarCurrentDate().toLocaleDateString('it-IT', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
+        } else if (state.calendarView === 'month') {
+            label = calendarCurrentDate().toLocaleDateString('it-IT', {
+                month: 'long',
+                year: 'numeric'
+            });
+        } else if (state.calendarView === 'agenda') {
+            label = `Agenda ${range.startDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })} - ${range.endDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        } else {
+            label = `${range.startDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' })} - ${range.endDate.toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        }
+
+        if (titleTarget) {
+            titleTarget.textContent = label.charAt(0).toUpperCase() + label.slice(1);
+        }
+        if (subtitleTarget) {
+            subtitleTarget.textContent = `Vista ${state.calendarView} | ${escapeHtml((eventField('timezone') && eventField('timezone').value) || 'Europe/Rome')}`;
+        }
+    }
+
+    function renderMiniMonth() {
+        const target = region('calendar-mini-month');
+        const labelTarget = region('calendar-mini-label');
+
+        if (!target) {
+            return;
+        }
+
+        const current = calendarCurrentDate();
+        const gridStart = startOfMonthGrid(current);
+        const gridEnd = endOfMonthGrid(current);
+        const today = parseDateOnly(formatDateOnly(new Date()));
+        const selectedRange = currentCalendarRange();
+        const cells = [];
+
+        for (let cursor = cloneDate(gridStart); cursor <= gridEnd; cursor = addDays(cursor, 1)) {
+            const inCurrentMonth = cursor.getMonth() === current.getMonth();
+            const inRange = cursor >= selectedRange.startDate && cursor <= selectedRange.endDate;
+            const classNames = [
+                'v24-smh-calendar-mini-day',
+                inCurrentMonth ? '' : 'is-outside',
+                sameDay(cursor, today) ? 'is-today' : '',
+                inRange ? 'is-range' : ''
+            ].filter(Boolean).join(' ');
+
+            cells.push(`
+                <button type="button" class="${classNames}" data-action="calendar-mini-day" data-date="${formatDateOnly(cursor)}">
+                    ${cursor.getDate()}
+                </button>
+            `);
+        }
+
+        if (labelTarget) {
+            labelTarget.textContent = current.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' });
+        }
+
+        target.innerHTML = `
+            <div class="v24-smh-calendar-mini-weekdays">
+                <span>Lun</span>
+                <span>Mar</span>
+                <span>Mer</span>
+                <span>Gio</span>
+                <span>Ven</span>
+                <span>Sab</span>
+                <span>Dom</span>
+            </div>
+            <div class="v24-smh-calendar-mini-grid">
+                ${cells.join('')}
+            </div>
+        `;
+    }
+
+    function setActiveModule(module) {
+        state.module = module;
+
+        app.querySelectorAll('[data-module-panel]').forEach((panel) => {
+            panel.hidden = panel.getAttribute('data-module-panel') !== module;
+        });
+
+        app.querySelectorAll('[data-module]').forEach((button) => {
+            button.classList.toggle('is-active', button.getAttribute('data-module') === module);
+        });
+
+        if (module === 'contacts') {
+            loadContacts().catch((error) => setStatus(error.message || 'Caricamento contatti non riuscito.'));
+            return;
+        }
+
+        if (module === 'calendar') {
+            Promise.all([loadWorkspaceUsers(), loadCalendars()]).then(() => {
+                ensureCalendarRange();
+                updateCalendarViewButtons();
+                updateCalendarPeriod();
+                renderMiniMonth();
+                return loadEvents();
+            }).catch((error) => setStatus(error.message || 'Caricamento calendario non riuscito.'));
+            return;
+        }
+
+        if (module === 'tasks') {
+            Promise.all([loadWorkspaceUsers(), loadTasks()]).catch((error) => setStatus(error.message || 'Caricamento task non riuscito.'));
+            return;
+        }
+
+        if (module === 'rules') {
+            loadRulesContext().catch((error) => setStatus(error.message || 'Caricamento regole non riuscito.'));
+        }
+    }
+
+    async function loadAccounts() {
+        setStatus('Caricamento account...');
+        const result = await api('/accounts');
+        const accounts = result.data || [];
+        state.accounts = accounts;
+        renderAccounts();
+        populateRulesAccountSelect();
+
+        if (accounts[0]) {
+            state.rulesAccountId = state.rulesAccountId || accounts[0].id;
+            const requestedAccount = accounts.find((account) => Number(account.id) === Number(state.initialAccountId));
+            await selectAccount(requestedAccount ? requestedAccount.id : accounts[0].id);
+        } else {
+            setStatus('Nessun account disponibile.');
+        }
+    }
+
+    function renderAccounts() {
+        const target = region('accounts');
+        target.innerHTML = '';
+
+        state.accounts.forEach((account) => {
+            const primaryLabel = account.display_name || account.label || account.email_address || 'Account';
+            const secondaryLabel = account.email_address && account.email_address !== primaryLabel ? account.email_address : '';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'v24-smh-list-button v24-smh-account-button';
+            button.setAttribute('data-account-id', account.id);
+            button.innerHTML = `
+                <strong>${escapeHtml(primaryLabel)}</strong>
+                ${secondaryLabel ? `<small>${escapeHtml(secondaryLabel)}</small>` : ''}
+            `;
+            button.addEventListener('click', () => selectAccount(account.id));
+            target.appendChild(button);
+        });
+
+        highlightSelection(target, 'data-account-id', state.accountId);
+    }
+
+    function populateRulesAccountSelect() {
+        const target = region('rules-account');
+        if (!target) {
+            return;
+        }
+
+        target.innerHTML = '';
+        state.accounts.forEach((account) => {
+            target.appendChild(createOption(account.id, account.label || account.email_address, Number(account.id) === Number(state.rulesAccountId)));
+        });
+    }
+
+    async function selectAccount(id) {
+        state.accountId = id;
+        state.folders = [];
+        state.folderId = null;
+        state.currentMessage = null;
+        state.folderContextId = null;
+        dispatchBridgeEvent('v24-smh-account-selected', { accountId: id });
+        highlightSelection(region('accounts'), 'data-account-id', id);
+        renderAccounts();
+        setStatus('Caricamento cartelle...');
+
+        const result = await api(`/mail/folders?account_id=${id}`);
+        state.folders = result.data || [];
+        renderFolders();
+
+        const requestedFolderId = Number(state.initialAccountId) === Number(id) ? Number(state.initialFolderId || 0) : 0;
+        const requestedFolder = requestedFolderId ? state.folders.find((folder) => Number(folder.id) === requestedFolderId) : null;
+        state.initialAccountId = 0;
+        state.initialFolderId = 0;
+
+        const preferredFolder = requestedFolder || resolvePreferredFolder(state.folders);
+        if (preferredFolder) {
+            await selectFolder(preferredFolder.id);
+        } else {
+            updateMailListHeader(0);
+            region('messages').innerHTML = '<p>Nessuna cartella sincronizzata.</p>';
+            region('reader').innerHTML = '<p>Avvia una sincronizzazione per popolare le cartelle.</p>';
+            syncFolderRoute();
+            setStatus('Account pronto.');
+        }
+
+        if (!state.rulesAccountId) {
+            state.rulesAccountId = id;
+            populateRulesAccountSelect();
+        }
+    }
+
+    function renderFolders() {
+        const target = region('folders');
+        const favoriteIds = new Set(readFolderPrefs(state.accountId, state.folders).favorites.map((id) => Number(id)));
+        target.innerHTML = '';
+
+        foldersForDisplay(state.folders).forEach((folder) => {
+            const button = document.createElement('button');
+            const secondaryLabel = folderSecondaryLabel(folder);
+            button.type = 'button';
+            button.className = 'v24-smh-list-button v24-smh-folder-button';
+            button.setAttribute('data-folder-id', folder.id);
+            button.style.setProperty('--v24-folder-indent', `${folderDepth(folder) * 18}px`);
+            button.innerHTML = `
+                <span class="v24-smh-folder-button-row">
+                    <strong>${escapeHtml(folderListLabel(folder))}</strong>
+                    ${favoriteIds.has(Number(folder.id)) ? '<span class="v24-smh-folder-favorite" aria-hidden="true">&#9733;</span>' : ''}
+                </span>
+                ${secondaryLabel ? `<small>${escapeHtml(secondaryLabel)}</small>` : ''}
+            `;
+            button.classList.toggle('is-favorite', favoriteIds.has(Number(folder.id)));
+            button.addEventListener('click', () => selectFolder(folder.id));
+            button.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                showFolderContextMenu(folder, event.clientX, event.clientY);
+            });
+            button.addEventListener('keydown', (event) => {
+                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                    event.preventDefault();
+                    const rect = button.getBoundingClientRect();
+                    showFolderContextMenu(folder, rect.left + 20, rect.top + Math.min(rect.height, 48));
+                }
+            });
+            target.appendChild(button);
+        });
+
+        highlightSelection(target, 'data-folder-id', state.folderId);
+        updateFolderContextHighlight();
+    }
+
+    async function selectFolder(id) {
+        state.folderId = id;
+        state.currentMessage = null;
+        closeFolderContextMenu();
+        dispatchBridgeEvent('v24-smh-folder-selected', { accountId: state.accountId, folderId: id });
+        syncFolderRoute();
+        renderFolders();
+        await loadMessages();
+    }
+
+    function moveFolderOrder(folderId, direction) {
+        const folder = folderById(folderId);
+        const parentKey = folderParentKey(folder);
+        const ids = orderedFolderSiblings(parentKey).map((item) => Number(item.id));
+        const currentIndex = ids.indexOf(Number(folderId));
+        const targetIndex = currentIndex + direction;
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ids.length) {
+            return false;
+        }
+
+        const targetFolder = folderById(ids[targetIndex]);
+        const currentFolderItem = folder;
+        if (isInboxFolder(currentFolderItem) || isInboxFolder(targetFolder)) {
+            return false;
+        }
+
+        [ids[currentIndex], ids[targetIndex]] = [ids[targetIndex], ids[currentIndex]];
+        const prefs = readFolderPrefs(state.accountId, state.folders);
+        prefs.orderMap[parentKey] = ids;
+        writeFolderPrefs(state.accountId, prefs, state.folders);
+        renderFolders();
+        return true;
+    }
+
+    async function createFolderFromContext(folder) {
+        const name = window.prompt(`Nome nuova cartella sotto "${folderDisplayName(folder)}"`, '');
+        if (!name || !name.trim()) {
+            return;
+        }
+
+        setStatus('Creazione cartella...');
+        const result = await api('/mail/folders/create', {
+            method: 'POST',
+            body: JSON.stringify({
+                account_id: state.accountId,
+                parent_folder_id: Number(folder.id),
+                name: name.trim()
+            })
+        });
+
+        state.folders = result.data && result.data.folders ? result.data.folders : state.folders;
+        renderFolders();
+
+        if (result.data && result.data.folder && result.data.folder.id) {
+            await selectFolder(result.data.folder.id);
+        } else {
+            setStatus('Cartella creata.');
+        }
+    }
+
+    async function renameFolderFromContext(folder) {
+        const name = window.prompt('Nuovo nome cartella', folderBaseName(folder));
+        if (!name || !name.trim()) {
+            return;
+        }
+
+        setStatus('Rinomina cartella...');
+        const result = await api(`/mail/folders/${folder.id}/rename`, {
+            method: 'POST',
+            body: JSON.stringify({ name: name.trim() })
+        });
+
+        if (result.data && result.data.folder) {
+            state.folders = state.folders.map((item) => (Number(item.id) === Number(folder.id) ? result.data.folder : item));
+            renderFolders();
+            if (Number(state.folderId) === Number(folder.id)) {
+                await loadMessages();
+            }
+        }
+
+        setStatus('Cartella rinominata.');
+    }
+
+    async function copyFolderFromContext(folder) {
+        const name = window.prompt('Nome della copia', `${folderBaseName(folder)} copia`);
+        if (!name || !name.trim()) {
+            return;
+        }
+
+        setStatus('Copia cartella...');
+        const result = await api(`/mail/folders/${folder.id}/copy`, {
+            method: 'POST',
+            body: JSON.stringify({ name: name.trim() })
+        });
+
+        state.folders = result.data && result.data.folders ? result.data.folders : state.folders;
+        renderFolders();
+        setStatus(result.data && result.data.requires_sync ? 'Cartella copiata. Sincronizza per caricare i messaggi.' : 'Cartella copiata.');
+    }
+
+    async function moveFolderFromContext(folder) {
+        const targetFullName = window.prompt('Nuovo percorso completo cartella', String(folder.full_name || folderSourceName(folder) || ''));
+        if (!targetFullName || !targetFullName.trim()) {
+            return;
+        }
+
+        setStatus('Spostamento cartella...');
+        const result = await api(`/mail/folders/${folder.id}/move`, {
+            method: 'POST',
+            body: JSON.stringify({ target_full_name: targetFullName.trim() })
+        });
+
+        if (result.data && result.data.folder) {
+            state.folders = state.folders.map((item) => (Number(item.id) === Number(folder.id) ? result.data.folder : item));
+            renderFolders();
+            if (Number(state.folderId) === Number(folder.id)) {
+                await loadMessages();
+            }
+        }
+
+        setStatus('Cartella spostata.');
+    }
+
+    async function deleteFolderFromContext(folder) {
+        if (!window.confirm(`Eliminare la cartella "${folderDisplayName(folder)}"?`)) {
+            return;
+        }
+
+        const wasSelected = Number(state.folderId) === Number(folder.id);
+        setStatus('Eliminazione cartella...');
+        const result = await api(`/mail/folders/${folder.id}/delete`, {
+            method: 'POST',
+            body: '{}'
+        });
+
+        state.folders = result.data && result.data.folders ? result.data.folders : state.folders.filter((item) => Number(item.id) !== Number(folder.id));
+        renderFolders();
+
+        if (wasSelected) {
+            const fallbackFolder = resolvePreferredFolder(state.folders);
+            if (fallbackFolder) {
+                await selectFolder(fallbackFolder.id);
+            } else {
+                state.folderId = null;
+                state.currentMessage = null;
+                syncFolderRoute();
+                updateMailListHeader(0);
+                region('messages').innerHTML = '<p>Nessuna cartella sincronizzata.</p>';
+                region('reader').innerHTML = '<p>Avvia una sincronizzazione per popolare le cartelle.</p>';
+            }
+        }
+
+        setStatus('Cartella eliminata.');
+    }
+
+    async function markFolderReadFromContext(folder) {
+        setStatus('Aggiornamento letture...');
+        await api(`/mail/folders/${folder.id}/mark-read`, {
+            method: 'POST',
+            body: '{}'
+        });
+
+        state.folders = state.folders.map((item) => (Number(item.id) === Number(folder.id) ? { ...item, unseen_count: 0 } : item));
+        renderFolders();
+
+        if (Number(state.folderId) === Number(folder.id)) {
+            await loadMessages();
+        }
+
+        setStatus('Tutti i messaggi della cartella risultano letti.');
+    }
+
+    async function emptyFolderFromContext(folder) {
+        if (!window.confirm(`Pulire la cartella "${folderDisplayName(folder)}"?`)) {
+            return;
+        }
+
+        setStatus('Pulizia cartella...');
+        const result = await api(`/mail/folders/${folder.id}/empty`, {
+            method: 'POST',
+            body: '{}'
+        });
+
+        state.folders = state.folders.map((item) => (Number(item.id) === Number(folder.id)
+            ? { ...item, message_count: 0, unseen_count: 0 }
+            : item));
+        renderFolders();
+
+        if (Number(state.folderId) === Number(folder.id)) {
+            await loadMessages();
+        }
+
+        setStatus(result.data && result.data.moved_to_trash ? 'Cartella pulita. I messaggi sono stati spostati nel cestino.' : 'Cartella svuotata.');
+    }
+
+    async function purgeFolderFromContext(folder) {
+        if (!window.confirm(`Eliminare definitivamente tutti i messaggi di "${folderDisplayName(folder)}"?`)) {
+            return;
+        }
+
+        setStatus('Eliminazione definitiva...');
+        await api(`/mail/folders/${folder.id}/purge`, {
+            method: 'POST',
+            body: '{}'
+        });
+
+        state.folders = state.folders.map((item) => (Number(item.id) === Number(folder.id)
+            ? { ...item, message_count: 0, unseen_count: 0 }
+            : item));
+        renderFolders();
+
+        if (Number(state.folderId) === Number(folder.id)) {
+            await loadMessages();
+        }
+
+        setStatus('Cartella svuotata in modo definitivo.');
+    }
+
+    function toggleFavoriteFolder(folder) {
+        const prefs = readFolderPrefs(state.accountId, state.folders);
+        const folderId = Number(folder.id);
+        prefs.favorites = prefs.favorites.includes(folderId)
+            ? prefs.favorites.filter((id) => Number(id) !== folderId)
+            : [...prefs.favorites, folderId];
+        writeFolderPrefs(state.accountId, prefs, state.folders);
+        renderFolders();
+        setStatus(prefs.favorites.includes(folderId) ? 'Cartella aggiunta ai Preferiti.' : 'Cartella rimossa dai Preferiti.');
+    }
+
+    function sortFolderChildrenAlphabetically(folder) {
+        const parentKey = folderFullName(folder);
+        const siblings = orderedFolderSiblings(parentKey);
+        if (!siblings.length) {
+            setStatus('Nessuna sottocartella da ordinare.');
+            return;
+        }
+
+        const sortedIds = [...siblings]
+            .sort((left, right) => folderListName(left).localeCompare(folderListName(right), 'it', { sensitivity: 'base' }))
+            .map((item) => Number(item.id));
+        const prefs = readFolderPrefs(state.accountId, state.folders);
+        prefs.orderMap[parentKey] = sortedIds;
+        writeFolderPrefs(state.accountId, prefs, state.folders);
+        renderFolders();
+        setStatus('Sottocartelle ordinate.');
+    }
+
+    function showFolderProperties(folder) {
+        const lines = [
+            `Cartella: ${folderDisplayName(folder)}`,
+            `Percorso: ${folder.full_name || folderSourceName(folder) || '-'}`,
+            `Delimitatore: ${folder.delimiter || '/'}`,
+            `Tipo speciale: ${folder.special_use || 'standard'}`,
+            `Messaggi: ${Number(folder.message_count || 0)}`,
+            `Non letti: ${Number(folder.unseen_count || 0)}`
+        ];
+        window.alert(lines.join('\n'));
+    }
+
+    async function handleFolderMenuAction(action) {
+        const folder = folderById(state.folderContextId);
+        closeFolderContextMenu();
+
+        if (!folder) {
+            return;
+        }
+
+        if (action === 'open-window') {
+            window.open(folderUrl(folder), '_blank', 'noopener');
+            setStatus('Cartella aperta in una nuova finestra.');
+        } else if (action === 'new-folder') {
+            await createFolderFromContext(folder);
+        } else if (action === 'rename-folder') {
+            await renameFolderFromContext(folder);
+        } else if (action === 'copy-folder') {
+            await copyFolderFromContext(folder);
+        } else if (action === 'move-folder') {
+            await moveFolderFromContext(folder);
+        } else if (action === 'delete-folder') {
+            await deleteFolderFromContext(folder);
+        } else if (action === 'mark-read-folder') {
+            await markFolderReadFromContext(folder);
+        } else if (action === 'empty-folder') {
+            await emptyFolderFromContext(folder);
+        } else if (action === 'purge-folder') {
+            await purgeFolderFromContext(folder);
+        } else if (action === 'sync-imap-folders') {
+            await sync();
+        } else if (action === 'toggle-favorite-folder') {
+            toggleFavoriteFolder(folder);
+        } else if (action === 'sort-folder-az') {
+            sortFolderChildrenAlphabetically(folder);
+        } else if (action === 'folder-move-up') {
+            if (moveFolderOrder(folder.id, -1)) {
+                setStatus('Cartella spostata verso l alto.');
+            }
+        } else if (action === 'folder-move-down') {
+            if (moveFolderOrder(folder.id, 1)) {
+                setStatus('Cartella spostata verso il basso.');
+            }
+        } else if (action === 'folder-properties') {
+            showFolderProperties(folder);
+        }
+    }
+
+    async function loadMessages() {
+        if (!state.accountId || !state.folderId) {
+            return;
+        }
+
+        setStatus('Caricamento messaggi...');
+        const params = new URLSearchParams({
+            account_id: state.accountId,
+            folder_id: state.folderId,
+            search: region('search').value || ''
+        });
+        const result = await api(`/mail/messages?${params.toString()}`);
+        const messages = result.data || [];
+        const target = region('messages');
+        target.innerHTML = '';
+        updateMailListHeader(messages.length);
+        target.classList.toggle('is-empty', !messages.length);
+
+        if (!messages.length) {
+            target.innerHTML = '<p>Nessun messaggio trovato.</p>';
+            region('reader').innerHTML = '<p>La cartella e vuota o il filtro non ha restituito risultati.</p>';
+            setStatus('Nessun messaggio.');
+            return;
+        }
+
+        messages.forEach((message) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `v24-smh-message${message.is_seen ? '' : ' is-unseen'}`;
+            button.setAttribute('data-message-id', message.id);
+            const tags = [];
+            if (message.is_flagged) {
+                tags.push('<span>Contrassegnato</span>');
+            }
+            if (message.has_attachments) {
+                tags.push('<span>Allegati</span>');
+            }
+            button.innerHTML = `
+                <div class="v24-smh-message-head">
+                    <strong class="v24-smh-message-sender">${escapeHtml(message.from_name || message.from_email || '')}</strong>
+                    ${renderEnvelopeIcon(Boolean(message.is_seen))}
+                </div>
+                <span class="v24-smh-message-subject">${escapeHtml(message.subject || '(Senza oggetto)')}</span>
+                <small class="v24-smh-message-date">${escapeHtml(formatDisplayDate(message.date_received || ''))}</small>
+                ${tags.length ? `<div class="v24-smh-message-meta">${tags.join('')}</div>` : ''}
+            `;
+            button.addEventListener('click', () => openMessage(message.id));
+            target.appendChild(button);
+        });
+
+        setStatus(`${messages.length} messaggi caricati.`);
+    }
+
+    async function openMessage(id) {
+        setStatus('Apertura messaggio...');
+        const result = await api(`/mail/messages/${id}`);
+        state.currentMessage = result.data;
+        highlightSelection(region('messages'), 'data-message-id', id);
+        renderMessage(state.currentMessage);
+        dispatchBridgeEvent('v24-smh-message-selected', {
+            accountId: state.accountId,
+            folderId: state.folderId,
+            message: state.currentMessage
+        });
+        setStatus('Messaggio aperto.');
+    }
+
+    function renderMessage(message) {
+        const body = normalizeMessageBodyHtml(message.body_html, message.body_plain);
+        const movableFolders = state.folders.filter((folder) => Number(folder.id) !== Number(message.folder_id));
+        const attachments = message.attachments || [];
+        const statusTags = [
+            `<span>${message.is_seen ? 'Letto' : 'Non letto'}</span>`,
+            `<span>${message.is_flagged ? 'Contrassegnato' : 'Normale'}</span>`,
+            attachments.length ? `<span>${attachments.length} allegat${attachments.length === 1 ? 'o' : 'i'}</span>` : ''
+        ].filter(Boolean).join('');
+        const movePanel = movableFolders.length ? `
+            <div class="v24-smh-inline-action v24-smh-reader-move">
+                <select data-region="move-target">
+                    <option value="">Sposta in...</option>
+                    ${foldersForDisplay(movableFolders).map((folder) => `<option value="${folder.id}">${escapeHtml(folderDisplayName(folder))}</option>`).join('')}
+                </select>
+                <button type="button" class="v24-smh-reader-button v24-smh-reader-button-secondary" data-action="move-message">Sposta</button>
+            </div>
+        ` : '';
+
+        region('reader').innerHTML = `
+            <article class="v24-smh-reader-shell">
+                <div class="v24-smh-reader-header">
+                    <div class="v24-smh-reader-summary">
+                        <span class="v24-smh-reader-kicker">Messaggio aperto</span>
+                        <div class="v24-smh-reader-title-block">
+                            <h2>${escapeHtml(message.subject || '(Senza oggetto)')}</h2>
+                        </div>
+                        <div class="v24-smh-reader-meta">
+                            <p class="v24-smh-reader-row"><strong>Da</strong><span>${escapeHtml(message.from_name || message.from_email || '')}</span></p>
+                            <p class="v24-smh-reader-row"><strong>Destinatari</strong>${renderRecipients(message.recipients)}</p>
+                            <div class="v24-smh-reader-state">
+                                <strong>Stato</strong>
+                                <div class="v24-smh-reader-status-pills">${statusTags}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="v24-smh-reader-actions-shell">
+                        <div class="v24-smh-reader-actions">
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="reply">Rispondi</button>
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="reply-all">Rispondi a tutti</button>
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="forward">Inoltra</button>
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-secondary" data-action="toggle-seen">${message.is_seen ? 'Segna non letto' : 'Segna letto'}</button>
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-secondary" data-action="toggle-flag">${message.is_flagged ? 'Rimuovi flag' : 'Contrassegna'}</button>
+                            <button type="button" class="v24-smh-reader-button v24-smh-reader-button-danger" data-action="delete-message">Elimina</button>
+                            ${movePanel}
+                        </div>
+                    </div>
+                </div>
+                <section class="v24-smh-reader-panel">
+                    <div class="v24-smh-reader-panel-head">
+                        <strong>Contenuto</strong>
+                    </div>
+                    <div class="v24-smh-body">${body}</div>
+                </section>
+                <section class="v24-smh-reader-panel v24-smh-reader-panel-attachments">
+                    <div class="v24-smh-reader-panel-head">
+                        <strong>Allegati</strong>
+                        <span>${attachments.length} file</span>
+                    </div>
+                    <div class="v24-smh-attachments">
+                        ${renderAttachments(attachments)}
+                    </div>
+                </section>
+            </article>
+        `;
+    }
+
+    function openCompose(mode) {
+        state.composeMode = mode || 'new';
+        const compose = region('compose');
+        const title = region('compose-title');
+        const current = state.currentMessage;
+
+        compose.querySelector('form').reset();
+        setComposeBodyHtml('');
+        composeWrapper('to').hidden = false;
+        composeWrapper('cc').hidden = false;
+        composeWrapper('bcc').hidden = false;
+
+        if (mode === 'reply' || mode === 'reply_all') {
+            title.textContent = mode === 'reply_all' ? 'Rispondi a tutti' : 'Rispondi';
+            composeField('subject').value = current ? `Re: ${current.subject || ''}` : '';
+            composeWrapper('to').hidden = true;
+            composeWrapper('cc').hidden = true;
+            composeWrapper('bcc').hidden = true;
+        } else if (mode === 'forward') {
+            title.textContent = 'Inoltra messaggio';
+            composeField('subject').value = current ? `Fwd: ${current.subject || ''}` : '';
+        } else {
+            title.textContent = 'Nuova email';
+        }
+
+        renderComposeContext(current, mode);
+        compose.hidden = false;
+        syncComposeBody();
+        composeEditor().focus();
+        dispatchBridgeEvent('v24-smh-compose-opened', {
+            accountId: state.accountId,
+            composeMode: state.composeMode,
+            message: current || null
+        });
+    }
+
+    function openComposeTo(email) {
+        setActiveModule('mail');
+        openCompose('new');
+        composeField('to').value = email || '';
+    }
+
+    async function submitCompose(event) {
+        event.preventDefault();
+        if (!state.accountId) {
+            setStatus('Seleziona prima un account.');
+            return;
+        }
+
+        syncComposeBody();
+        const form = new FormData(event.target);
+        const payload = {
+            account_id: state.accountId,
+            to: splitAddresses(form.get('to')),
+            cc: splitAddresses(form.get('cc')),
+            bcc: splitAddresses(form.get('bcc')),
+            subject: form.get('subject') || '',
+            body: form.get('body') || '',
+            body_format: 'html'
+        };
+
+        setStatus('Invio in corso...');
+
+        if (state.composeMode === 'reply' || state.composeMode === 'reply_all') {
+            await api(`/mail/messages/${state.currentMessage.id}/reply`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    reply_all: state.composeMode === 'reply_all',
+                    body: payload.body,
+                    body_format: 'html'
+                })
+            });
+        } else if (state.composeMode === 'forward') {
+            await api(`/mail/messages/${state.currentMessage.id}/forward`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    to: payload.to,
+                    cc: payload.cc,
+                    bcc: payload.bcc,
+                    body: payload.body
+                })
+            });
+        } else {
+            await api('/mail/send', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        }
+
+        closeCompose();
+        setStatus('Email inviata.');
+    }
+
+    async function sync() {
+        if (!state.accountId) {
+            return;
+        }
+
+        const previousFolderId = state.folderId;
+
+        setStatus('Sincronizzazione in corso...');
+        await api(`/accounts/${state.accountId}/sync`, { method: 'POST', body: '{}' });
+        await selectAccount(state.accountId);
+
+        if (previousFolderId && state.folders.some((folder) => Number(folder.id) === Number(previousFolderId))) {
+            await selectFolder(previousFolderId);
+        }
+
+        setStatus('Sincronizzazione completata.');
+    }
+
+    async function toggleSeen() {
+        if (!state.currentMessage) {
+            return;
+        }
+
+        const nextSeen = !state.currentMessage.is_seen;
+        await api(`/mail/messages/${state.currentMessage.id}/seen`, {
+            method: 'POST',
+            body: JSON.stringify({ is_seen: nextSeen })
+        });
+
+        state.currentMessage.is_seen = nextSeen;
+        renderMessage(state.currentMessage);
+        await loadMessages();
+        setStatus(nextSeen ? 'Messaggio segnato come letto.' : 'Messaggio segnato come non letto.');
+    }
+
+    async function toggleFlag() {
+        if (!state.currentMessage) {
+            return;
+        }
+
+        const nextFlagged = !state.currentMessage.is_flagged;
+        await api(`/mail/messages/${state.currentMessage.id}/flag`, {
+            method: 'POST',
+            body: JSON.stringify({ is_flagged: nextFlagged })
+        });
+
+        state.currentMessage.is_flagged = nextFlagged;
+        renderMessage(state.currentMessage);
+        await loadMessages();
+        setStatus(nextFlagged ? 'Messaggio contrassegnato.' : 'Contrassegno rimosso.');
+    }
+
+    async function moveCurrentMessage() {
+        if (!state.currentMessage) {
+            return;
+        }
+
+        const target = region('move-target');
+        const targetFolderId = Number(target && target.value ? target.value : 0);
+        if (!targetFolderId) {
+            setStatus('Seleziona una cartella di destinazione.');
+            return;
+        }
+
+        const result = await api(`/mail/messages/${state.currentMessage.id}/move`, {
+            method: 'POST',
+            body: JSON.stringify({ target_folder_id: targetFolderId })
+        });
+
+        state.currentMessage = null;
+        region('reader').innerHTML = '<p>Messaggio spostato. Apri la cartella di destinazione per continuare.</p>';
+
+        if (result.data && result.data.requires_sync) {
+            await sync();
+        } else {
+            await loadMessages();
+        }
+
+        await selectFolder(targetFolderId);
+        setStatus('Messaggio spostato.');
+    }
+
+    async function deleteCurrentMessage() {
+        if (!state.currentMessage || !window.confirm('Eliminare questo messaggio?')) {
+            return;
+        }
+
+        const result = await api(`/mail/messages/${state.currentMessage.id}/delete`, {
+            method: 'POST',
+            body: '{}'
+        });
+
+        state.currentMessage = null;
+        region('reader').innerHTML = '<p>Messaggio eliminato.</p>';
+
+        if (result.data && result.data.requires_sync) {
+            await sync();
+        } else {
+            await loadMessages();
+        }
+
+        setStatus(result.data && result.data.moved_to_trash ? 'Messaggio spostato nel cestino.' : 'Messaggio eliminato.');
+    }
+
+    async function downloadAttachment(id) {
+        setStatus('Download allegato...');
+        const result = await api(`/mail/attachments/${id}`);
+        const payload = result.data;
+        const bytes = Uint8Array.from(atob(payload.content_base64), (char) => char.charCodeAt(0));
+        const blob = new Blob([bytes], { type: payload.mime_type || 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = payload.filename || 'attachment';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setStatus('Allegato scaricato.');
+    }
+
+    async function loadContacts() {
+        setStatus('Caricamento contatti...');
+        const params = new URLSearchParams({ search: region('contacts-search').value || '' });
+        const result = await api(`/contacts?${params.toString()}`);
+        state.contacts = result.data || [];
+
+        renderContactGroups();
+        renderContactList();
+
+        if (!state.contacts.length) {
+            state.currentContact = null;
+            renderContactEmptyState('Crea un contatto o modifica il filtro di ricerca.', 'Archivio contatti vuoto');
+            setStatus('Nessun contatto.');
+            return;
+        }
+
+        if (!state.currentContact && region('contact-form-sheet').hidden) {
+            renderContactEmptyState('Seleziona una scheda dalla colonna centrale per aprire i dettagli.');
+        }
+
+        setStatus(`${state.contacts.length} contatti caricati.`);
+    }
+
+    async function openContact(id) {
+        const result = await api(`/contacts/${id}`);
+        state.currentContact = result.data;
+        showContactReaderPanel();
+        highlightSelection(region('contacts'), 'data-contact-id', id);
+        renderContact(state.currentContact);
+        setStatus('Contatto aperto.');
+    }
+
+    function renderContact(contact) {
+        const extraEmails = safeJson(contact.emails_json).filter((email) => email !== contact.primary_email);
+        const extraPhones = safeJson(contact.phones_json).filter((phone) => phone !== contact.mobile_phone && phone !== contact.business_phone);
+        const addresses = safeJson(contact.addresses_json);
+        const categories = safeJson(contact.categories_json);
+        const groups = contactGroupsFor(contact).map((group) => group.label);
+        const summary = [contact.company, contact.department, contact.job_title].filter(Boolean).join(' | ') || 'Scheda contatto pronta per email, calendario e task.';
+
+        const renderRow = (label, value) => `
+            <div class="v24-smh-contact-row">
+                <span>${escapeHtml(label)}</span>
+                <div>${value || '<em>-</em>'}</div>
+            </div>
+        `;
+
+        const emailRows = [
+            renderRow('Principale', contact.primary_email ? `<a href="mailto:${escapeHtml(contact.primary_email)}">${escapeHtml(contact.primary_email)}</a>` : ''),
+            ...extraEmails.map((email, index) => renderRow(`Altro ${index + 1}`, `<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`)),
+            renderRow('Web', contact.website_url ? `<a href="${escapeHtml(contact.website_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(contact.website_url)}</a>` : '')
+        ].join('');
+
+        const phoneRows = [
+            renderRow('Cellulare', escapeHtml(contact.mobile_phone || '')),
+            renderRow('Ufficio', escapeHtml(contact.business_phone || '')),
+            ...extraPhones.map((phone, index) => renderRow(`Altro ${index + 1}`, escapeHtml(phone)))
+        ].join('');
+
+        const addressRows = addresses.length
+            ? addresses.map((address, index) => renderRow(`Indirizzo ${index + 1}`, escapeHtml(address))).join('')
+            : renderRow('Indirizzo', '');
+
+        region('contact-reader').innerHTML = `
+            <article class="v24-smh-contact-card">
+                <div class="v24-smh-contact-hero">
+                    <div class="v24-smh-contact-avatar v24-smh-contact-avatar-xl">${escapeHtml(contactInitials(contact))}</div>
+                    <div class="v24-smh-contact-hero-copy">
+                        <span class="v24-smh-contact-kicker">${escapeHtml((groups[0] || 'Contatti personali'))}</span>
+                        <h2>${escapeHtml(contactDisplayName(contact))}</h2>
+                        <p>${escapeHtml(summary)}</p>
+                    </div>
+                    <div class="v24-smh-reader-actions v24-smh-contact-actions">
+                        <button type="button" data-action="compose-contact">Scrivi email</button>
+                        <button type="button" data-action="edit-contact">Modifica</button>
+                        <button type="button" data-action="delete-contact">Elimina</button>
+                    </div>
+                </div>
+                <div class="v24-smh-contact-summary-grid">
+                    ${renderRow('Gruppi', escapeHtml(groups.join(', ') || 'Contatti personali'))}
+                    ${renderRow('Nome', escapeHtml(contact.first_name || ''))}
+                    ${renderRow('Cognome', escapeHtml(contact.last_name || ''))}
+                    ${renderRow('Nome visualizzato', escapeHtml(contact.display_name || contactDisplayName(contact)))}
+                    ${renderRow('Azienda', escapeHtml(contact.company || ''))}
+                    ${renderRow('Reparto', escapeHtml(contact.department || ''))}
+                </div>
+                <div class="v24-smh-contact-tabbar">
+                    <button type="button" class="is-active" aria-pressed="true">Proprieta</button>
+                    <button type="button" tabindex="-1">Personale</button>
+                    <button type="button" tabindex="-1">Note</button>
+                </div>
+                <div class="v24-smh-contact-section">
+                    <h3>E-Mail</h3>
+                    <div class="v24-smh-contact-rows">${emailRows}</div>
+                </div>
+                <div class="v24-smh-contact-section">
+                    <h3>Telefoni</h3>
+                    <div class="v24-smh-contact-rows">${phoneRows}</div>
+                </div>
+                <div class="v24-smh-contact-section">
+                    <h3>Indirizzi / Logistica</h3>
+                    <div class="v24-smh-contact-rows">${addressRows}</div>
+                </div>
+                <div class="v24-smh-contact-section">
+                    <h3>Categorie</h3>
+                    ${renderTagList(categories, 'Nessuna categoria assegnata.')}
+                </div>
+                <div class="v24-smh-contact-section">
+                    <h3>Note</h3>
+                    <div class="v24-smh-contact-note"><pre>${escapeHtml(contact.notes || 'Nessuna nota.')}</pre></div>
+                </div>
+            </article>
+        `;
+    }
+
+    function openContactForm(contact) {
+        state.editingContactId = contact ? contact.id : null;
+        region('contact-form-title').textContent = contact ? 'Modifica contatto' : 'Nuovo contatto';
+
+        contactField('display-name').value = contact ? contact.display_name || '' : '';
+        contactField('first-name').value = contact ? contact.first_name || '' : '';
+        contactField('last-name').value = contact ? contact.last_name || '' : '';
+        contactField('company').value = contact ? contact.company || '' : '';
+        contactField('department').value = contact ? contact.department || '' : '';
+        contactField('job-title').value = contact ? contact.job_title || '' : '';
+        contactField('primary-email').value = contact ? contact.primary_email || '' : '';
+        contactField('mobile-phone').value = contact ? contact.mobile_phone || '' : '';
+        contactField('business-phone').value = contact ? contact.business_phone || '' : '';
+        contactField('website-url').value = contact ? contact.website_url || '' : '';
+        contactField('emails').value = contact ? safeJson(contact.emails_json).filter((email) => email !== contact.primary_email).join(', ') : '';
+        contactField('phones').value = contact ? safeJson(contact.phones_json).filter((phone) => phone !== contact.mobile_phone && phone !== contact.business_phone).join(', ') : '';
+        contactField('addresses').value = contact ? safeJson(contact.addresses_json).join(', ') : '';
+        contactField('categories').value = contact ? safeJson(contact.categories_json).join(', ') : '';
+        contactField('notes').value = contact ? contact.notes || '' : '';
+
+        showContactFormPanel();
+    }
+
+    function closeContactForm() {
+        showContactReaderPanel();
+        if (state.currentContact) {
+            renderContact(state.currentContact);
+        } else {
+            renderContactEmptyState('Seleziona una scheda dalla colonna centrale o crea un nuovo contatto.');
+        }
+    }
+
+    async function submitContact(event) {
+        event.preventDefault();
+        const payload = {
+            display_name: contactField('display-name').value,
+            first_name: contactField('first-name').value,
+            last_name: contactField('last-name').value,
+            company: contactField('company').value,
+            department: contactField('department').value,
+            job_title: contactField('job-title').value,
+            primary_email: contactField('primary-email').value,
+            mobile_phone: contactField('mobile-phone').value,
+            business_phone: contactField('business-phone').value,
+            website_url: contactField('website-url').value,
+            emails: splitCsv(contactField('emails').value),
+            phones: splitCsv(contactField('phones').value),
+            addresses: splitCsv(contactField('addresses').value),
+            categories: splitCsv(contactField('categories').value),
+            notes: contactField('notes').value
+        };
+
+        let result;
+        if (state.editingContactId) {
+            result = await api(`/contacts/${state.editingContactId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+        } else {
+            result = await api('/contacts', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        }
+
+        closeContactForm();
+        await loadContacts();
+        if (result.data && result.data.id) {
+            await openContact(result.data.id);
+        }
+        setStatus('Contatto salvato.');
+    }
+
+    async function deleteCurrentContact() {
+        if (!state.currentContact || !window.confirm('Eliminare questo contatto?')) {
+            return;
+        }
+
+        await api(`/contacts/${state.currentContact.id}`, { method: 'DELETE' });
+        state.currentContact = null;
+        closeContactForm();
+        renderContactEmptyState('Il contatto e stato eliminato. Selezionane un altro oppure crea una nuova scheda.', 'Contatto eliminato');
+        await loadContacts();
+        setStatus('Contatto eliminato.');
+    }
+
+    async function loadWorkspaceUsers() {
+        if (state.users.length) {
+            return state.users;
+        }
+
+        const result = await api('/calendar/users');
+        state.users = result.data || [];
+        populateTaskUsers();
+        renderCalendarShareOptions(state.currentCalendar);
+        return state.users;
+    }
+
+    function ensureCalendarRange() {
+        if (!state.calendarCursor) {
+            state.calendarCursor = formatDateOnly(new Date());
+        }
+
+        syncCalendarRangeFields();
+        updateCalendarViewButtons();
+        updateCalendarPeriod();
+        renderMiniMonth();
+    }
+
+    function eventRangeParams() {
+        ensureCalendarRange();
+        syncCalendarRangeFields();
+        return {
+            start: `${region('calendar-start').value} 00:00:00`,
+            end: `${region('calendar-end').value} 23:59:59`
+        };
+    }
+
+    async function loadCalendars() {
+        const result = await api('/calendar/calendars');
+        state.calendars = result.data || [];
+
+        if (state.selectedCalendarId && !state.calendars.some((calendar) => Number(calendar.id) === Number(state.selectedCalendarId))) {
+            state.selectedCalendarId = null;
+        }
+
+        if (!state.selectedCalendarId && state.calendars[0]) {
+            state.currentCalendar = state.calendars[0];
+        } else {
+            state.currentCalendar = state.calendars.find((calendar) => Number(calendar.id) === Number(state.selectedCalendarId)) || null;
+        }
+
+        renderCalendars();
+        populateEventCalendars();
+        renderMiniMonth();
+        return state.calendars;
+    }
+
+    function renderCalendars() {
+        const target = region('calendar-list');
+        target.innerHTML = '';
+        const calendars = filteredCalendars();
+
+        const allButton = createButton('Tutti i calendari', 'v24-smh-list-button');
+        allButton.classList.toggle('is-active', !state.selectedCalendarId);
+        allButton.addEventListener('click', () => {
+            state.selectedCalendarId = null;
+            state.currentCalendar = null;
+            renderCalendars();
+            loadEvents().catch((error) => setStatus(error.message || 'Caricamento eventi non riuscito.'));
+        });
+        target.appendChild(allButton);
+
+        calendars.forEach((calendar) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `v24-smh-list-button${Number(calendar.id) === Number(state.selectedCalendarId) ? ' is-active' : ''}`;
+            button.setAttribute('data-calendar-id', calendar.id);
+            button.innerHTML = `
+                <span class="v24-smh-color-chip" style="--chip:${escapeHtml(calendar.color || '#0d5c63')}"></span>
+                <strong>${escapeHtml(calendar.name || '')}</strong>
+                <small>${escapeHtml(calendar.permission_level || '')}</small>
+            `;
+            button.addEventListener('click', () => {
+                state.selectedCalendarId = calendar.id;
+                state.currentCalendar = calendar;
+                renderCalendars();
+                loadEvents().catch((error) => setStatus(error.message || 'Caricamento eventi non riuscito.'));
+            });
+            target.appendChild(button);
+        });
+
+        if (!calendars.length) {
+            const empty = document.createElement('p');
+            empty.textContent = 'Nessun calendario corrisponde al filtro.';
+            target.appendChild(empty);
+        }
+
+        renderCalendarManager();
+        renderMiniMonth();
+    }
+
+    function renderCalendarManager() {
+        const target = region('calendar-manager');
+        const calendar = state.currentCalendar;
+        if (!calendar) {
+            target.innerHTML = '<p>Visualizzazione completa dei calendari disponibili.</p>';
+            return;
+        }
+
+        target.innerHTML = `
+            <div class="v24-smh-card">
+                <div class="v24-smh-card-header">
+                    <div>
+                        <h3>${escapeHtml(calendar.name || '')}</h3>
+                        <p>${escapeHtml(calendar.owner_name || '')}</p>
+                    </div>
+                    <span class="v24-smh-color-badge" style="background:${escapeHtml(calendar.color || '#0d5c63')}"></span>
+                </div>
+                <p>${escapeHtml(calendar.description || 'Nessuna descrizione.')}</p>
+                <p><strong>Permesso:</strong> ${escapeHtml(calendar.permission_level || 'read')}</p>
+                <div class="v24-smh-reader-actions">
+                    ${calendar.can_edit ? '<button type="button" data-action="new-event-on-calendar">Nuovo evento</button>' : ''}
+                    ${calendar.can_manage_shares ? '<button type="button" data-action="edit-calendar">Modifica calendario</button>' : ''}
+                    ${calendar.can_manage_shares && !Number(calendar.is_default) ? '<button type="button" data-action="delete-calendar">Elimina calendario</button>' : ''}
+                </div>
+                <div>
+                    <h4>Condivisioni</h4>
+                    ${renderTagList((calendar.shares || []).map((share) => `${share.display_name}: ${share.permission_level}`), 'Nessuna condivisione attiva.')}
+                </div>
+            </div>
+        `;
+    }
+
+    function populateEventCalendars(selectedId) {
+        const target = eventField('calendar');
+        target.innerHTML = '';
+        state.calendars.filter((calendar) => calendar.can_edit).forEach((calendar) => {
+            target.appendChild(createOption(calendar.id, calendar.name, Number(calendar.id) === Number(selectedId || selectedEditableCalendarId())));
+        });
+    }
+
+    function renderCalendarShareOptions(calendar) {
+        const target = region('calendar-share-options');
+        target.innerHTML = '';
+
+        if (!state.users.length) {
+            target.innerHTML = '<p>Nessun utente disponibile.</p>';
+            return;
+        }
+
+        const selectedMap = {};
+        (calendar && calendar.shares ? calendar.shares : []).forEach((share) => {
+            selectedMap[share.user_id] = share.permission_level;
+        });
+
+        state.users.filter((user) => Number(user.id) !== currentUserId).forEach((user) => {
+            const wrapper = document.createElement('label');
+            wrapper.className = 'v24-smh-share-row';
+            wrapper.innerHTML = `
+                <span>${escapeHtml(user.display_name || user.email || `Utente ${user.id}`)}</span>
+                <select data-share-user="${user.id}">
+                    <option value="">Nessun accesso</option>
+                    <option value="read"${selectedMap[user.id] === 'read' ? ' selected' : ''}>Lettura</option>
+                    <option value="edit"${selectedMap[user.id] === 'edit' ? ' selected' : ''}>Modifica</option>
+                </select>
+            `;
+            target.appendChild(wrapper);
+        });
+    }
+
+    function collectCalendarShares() {
+        const shares = [];
+        region('calendar-share-options').querySelectorAll('[data-share-user]').forEach((select) => {
+            if (!select.value) {
+                return;
+            }
+
+            shares.push({
+                user_id: Number(select.getAttribute('data-share-user')),
+                permission_level: select.value
+            });
+        });
+        return shares;
+    }
+
+    function renderCalendarEventChip(calendarEvent, options = {}) {
+        const key = calendarEventKey(calendarEvent);
+        const start = parseDateTimeValue(calendarEvent.start_at);
+        const timeLabel = Number(calendarEvent.is_all_day || 0)
+            ? 'Tutto il giorno'
+            : `${pad2(start.getHours())}:${pad2(start.getMinutes())}`;
+        const classNames = [
+            'v24-smh-calendar-event-chip',
+            options.compact ? 'is-compact' : '',
+            state.currentEvent && calendarEventKey(state.currentEvent) === key ? 'is-active' : ''
+        ].filter(Boolean).join(' ');
+
+        return `
+            <button
+                type="button"
+                class="${classNames}"
+                data-action="open-calendar-event"
+                data-event-key="${key}"
+                style="--event-color:${calendarEventColor(calendarEvent)}"
+            >
+                <span class="v24-smh-calendar-event-time">${escapeHtml(timeLabel)}</span>
+                <strong>${escapeHtml(calendarEvent.title || 'Evento')}</strong>
+            </button>
+        `;
+    }
+
+    function calendarEventTouchesDate(calendarEvent, date) {
+        const start = parseDateTimeValue(calendarEvent.start_at);
+        const end = parseDateTimeValue(calendarEvent.end_at || calendarEvent.start_at);
+        const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+        const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+        return start <= dayEnd && end >= dayStart;
+    }
+
+    function renderCalendarAgendaView(events) {
+        const gridTarget = region('calendar-grid');
+        const agendaTarget = region('events');
+
+        gridTarget.hidden = true;
+        agendaTarget.hidden = false;
+
+        if (!events.length) {
+            agendaTarget.innerHTML = '<div class="v24-smh-calendar-empty">Nessun evento nel periodo selezionato.</div>';
+            return;
+        }
+
+        agendaTarget.innerHTML = events.map((calendarEvent) => {
+            const meta = [
+                calendarEvent.calendar_name,
+                calendarEvent.location,
+                calendarEvent.is_occurrence ? 'Ricorrente' : ''
+            ].filter(Boolean).join(' | ');
+
+            return `
+                <button type="button" class="v24-smh-record v24-smh-calendar-agenda-item${state.currentEvent && calendarEventKey(state.currentEvent) === calendarEventKey(calendarEvent) ? ' is-active' : ''}" data-action="open-calendar-event" data-event-key="${calendarEventKey(calendarEvent)}">
+                    <strong>${escapeHtml(calendarEvent.title || '')}</strong>
+                    <span>${escapeHtml(formatDisplayDate(calendarEvent.start_at))}</span>
+                    <small>${escapeHtml(meta)}</small>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function renderCalendarTimeGridView(events) {
+        const gridTarget = region('calendar-grid');
+        const agendaTarget = region('events');
+        const range = currentCalendarRange();
+        const days = calendarDateRange(range.startDate, range.endDate);
+        const hours = Array.from({ length: 24 }, (_, index) => index);
+        const today = parseDateOnly(formatDateOnly(new Date()));
+
+        const allDayByDate = {};
+        const timedByCell = {};
+
+        days.forEach((date) => {
+            allDayByDate[formatDateOnly(date)] = [];
+        });
+
+        events.forEach((calendarEvent) => {
+            const start = parseDateTimeValue(calendarEvent.start_at);
+            const dateKey = formatDateOnly(start);
+            if (Number(calendarEvent.is_all_day || 0)) {
+                days.forEach((date) => {
+                    if (calendarEventTouchesDate(calendarEvent, date)) {
+                        allDayByDate[formatDateOnly(date)].push(calendarEvent);
+                    }
+                });
+                return;
+            }
+
+            const cellKey = `${dateKey}-${start.getHours()}`;
+            if (!timedByCell[cellKey]) {
+                timedByCell[cellKey] = [];
+            }
+            timedByCell[cellKey].push(calendarEvent);
+        });
+
+        gridTarget.hidden = false;
+        agendaTarget.hidden = true;
+        gridTarget.innerHTML = `
+            <div class="v24-smh-calendar-grid-week">
+                <div class="v24-smh-calendar-grid-head" style="grid-template-columns: 76px repeat(${days.length}, minmax(140px, 1fr));">
+                    <div class="v24-smh-calendar-axis-spacer"></div>
+                    ${days.map((date) => `
+                        <button type="button" class="v24-smh-calendar-day-head${sameDay(date, today) ? ' is-today' : ''}" data-action="calendar-mini-day" data-date="${formatDateOnly(date)}">
+                            <strong>${escapeHtml(formatCalendarDayLabel(date))}</strong>
+                            <span>${escapeHtml(date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }))}</span>
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="v24-smh-calendar-all-day-row" style="grid-template-columns: 76px repeat(${days.length}, minmax(140px, 1fr));">
+                    <div class="v24-smh-calendar-axis-label">Tutto il giorno</div>
+                    ${days.map((date) => `
+                        <div class="v24-smh-calendar-all-day-cell">
+                            ${(allDayByDate[formatDateOnly(date)] || []).map((calendarEvent) => renderCalendarEventChip(calendarEvent, { compact: true })).join('')}
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="v24-smh-calendar-time-grid" style="grid-template-columns: 76px repeat(${days.length}, minmax(140px, 1fr));">
+                    ${hours.map((hour) => `
+                        <div class="v24-smh-calendar-time-label">${calendarHourLabel(hour)}</div>
+                        ${days.map((date) => {
+                            const dateKey = formatDateOnly(date);
+                            const slotEvents = timedByCell[`${dateKey}-${hour}`] || [];
+                            return `
+                                <div class="v24-smh-calendar-slot${sameDay(date, today) ? ' is-today' : ''}" data-action="new-event-slot" data-date="${dateKey}" data-hour="${hour}">
+                                    ${slotEvents.map((calendarEvent) => renderCalendarEventChip(calendarEvent, { compact: true })).join('')}
+                                </div>
+                            `;
+                        }).join('')}
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderCalendarMonthView(events) {
+        const gridTarget = region('calendar-grid');
+        const agendaTarget = region('events');
+        const current = calendarCurrentDate();
+        const gridStart = startOfMonthGrid(current);
+        const gridEnd = endOfMonthGrid(current);
+        const days = calendarDateRange(gridStart, gridEnd);
+        const today = parseDateOnly(formatDateOnly(new Date()));
+
+        gridTarget.hidden = false;
+        agendaTarget.hidden = true;
+        gridTarget.innerHTML = `
+            <div class="v24-smh-calendar-grid-month">
+                <div class="v24-smh-calendar-month-weekdays">
+                    <span>Lunedì</span>
+                    <span>Martedì</span>
+                    <span>Mercoledì</span>
+                    <span>Giovedì</span>
+                    <span>Venerdì</span>
+                    <span>Sabato</span>
+                    <span>Domenica</span>
+                </div>
+                <div class="v24-smh-calendar-month-grid">
+                    ${days.map((date) => {
+                        const dayEvents = events.filter((calendarEvent) => calendarEventTouchesDate(calendarEvent, date)).slice(0, 4);
+                        const hiddenCount = Math.max(events.filter((calendarEvent) => calendarEventTouchesDate(calendarEvent, date)).length - dayEvents.length, 0);
+                        return `
+                            <div class="v24-smh-calendar-month-day${date.getMonth() !== current.getMonth() ? ' is-outside' : ''}${sameDay(date, today) ? ' is-today' : ''}">
+                                <button type="button" class="v24-smh-calendar-month-day-number" data-action="calendar-mini-day" data-date="${formatDateOnly(date)}">${date.getDate()}</button>
+                                <div class="v24-smh-calendar-month-events">
+                                    ${dayEvents.map((calendarEvent) => renderCalendarEventChip(calendarEvent, { compact: true })).join('')}
+                                    ${hiddenCount ? `<span class="v24-smh-calendar-more">+${hiddenCount} altri</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderCalendarBoard() {
+        ensureCalendarRange();
+        updateCalendarPeriod();
+        renderMiniMonth();
+
+        const events = filteredCalendarEvents().sort((first, second) => {
+            const firstDate = parseDateTimeValue(first.start_at).getTime();
+            const secondDate = parseDateTimeValue(second.start_at).getTime();
+            return firstDate - secondDate;
+        });
+
+        if (state.calendarView === 'agenda') {
+            renderCalendarAgendaView(events);
+            return;
+        }
+
+        if (state.calendarView === 'month') {
+            renderCalendarMonthView(events);
+            return;
+        }
+
+        renderCalendarTimeGridView(events);
+    }
+
+    function calendarNavigate(direction) {
+        const current = calendarCurrentDate();
+        let nextDate = current;
+
+        if (direction === 'today') {
+            nextDate = parseDateOnly(formatDateOnly(new Date()));
+        } else if (state.calendarView === 'month') {
+            nextDate = new Date(current.getFullYear(), current.getMonth() + direction, 1);
+        } else if (state.calendarView === 'day') {
+            nextDate = addDays(current, direction);
+        } else if (state.calendarView === 'agenda') {
+            nextDate = addDays(current, direction * 7);
+        } else {
+            nextDate = addDays(current, direction * 7);
+        }
+
+        state.calendarCursor = formatDateOnly(nextDate);
+    }
+
+    function openEventByKey(eventKey) {
+        const found = state.calendarEvents.find((calendarEvent) => calendarEventKey(calendarEvent) === String(eventKey));
+        if (found) {
+            return openEvent(found);
+        }
+
+        setStatus('Evento non disponibile nel range corrente.');
+        return Promise.resolve();
+    }
+
+    async function loadEvents() {
+        const range = eventRangeParams();
+        const params = new URLSearchParams({
+            start: range.start,
+            end: range.end
+        });
+        if (state.selectedCalendarId) {
+            params.set('calendar_ids', state.selectedCalendarId);
+        }
+
+        const result = await api(`/calendar/events?${params.toString()}`);
+        state.calendarEvents = result.data || [];
+        renderCalendarBoard();
+
+        if (!state.calendarEvents.length) {
+            setStatus('Nessun evento.');
+            return;
+        }
+
+        setStatus(`${state.calendarEvents.length} eventi caricati.`);
+    }
+
+    async function openEvent(eventOrId) {
+        let calendarEvent = eventOrId;
+
+        if (typeof eventOrId === 'number') {
+            const result = await api(`/calendar/events/${eventOrId}`);
+            calendarEvent = result.data;
+        }
+
+        state.currentEvent = calendarEvent;
+        state.currentCalendar = state.calendars.find((calendar) => Number(calendar.id) === Number(calendarEvent.calendar_id)) || state.currentCalendar;
+        highlightCalendarEventSelection(calendarEventKey(calendarEvent));
+        renderCalendarManager();
+        renderEvent(calendarEvent);
+        setStatus('Evento aperto.');
+    }
+
+    function renderEvent(calendarEvent) {
+        const categories = calendarEvent.categories || safeJson(calendarEvent.categories_json);
+        const occurrenceActions = calendarEvent.can_edit && calendarEvent.is_occurrence ? `
+            <button type="button" data-action="edit-event-occurrence">Modifica occorrenza</button>
+            <button type="button" data-action="delete-event-occurrence">Elimina occorrenza</button>
+            ${calendarEvent.is_series ? '<button type="button" data-action="edit-event-series">Modifica serie</button>' : ''}
+        ` : '';
+        const standardActions = calendarEvent.can_edit && !calendarEvent.is_occurrence ? `
+            <button type="button" data-action="edit-event">Modifica</button>
+            <button type="button" data-action="delete-event">Elimina</button>
+        ` : '';
+
+        region('event-reader').innerHTML = `
+            <div class="v24-smh-reader-header">
+                <div>
+                    <h2>${escapeHtml(calendarEvent.title || '')}</h2>
+                    <p><strong>Calendario:</strong> ${escapeHtml(calendarEvent.calendar_name || '-')}</p>
+                    <p><strong>Inizio:</strong> ${escapeHtml(formatDisplayDate(calendarEvent.start_at))}</p>
+                    <p><strong>Fine:</strong> ${escapeHtml(formatDisplayDate(calendarEvent.end_at))}</p>
+                    <p><strong>Luogo:</strong> ${escapeHtml(calendarEvent.location || '-')}</p>
+                    <p><strong>Stato:</strong> ${escapeHtml(calendarEvent.status || 'confirmed')}</p>
+                    <p><strong>Disponibilita:</strong> ${escapeHtml(calendarEvent.busy_status || 'busy')}</p>
+                    <p><strong>Promemoria:</strong> ${calendarEvent.reminder_minutes !== null && calendarEvent.reminder_minutes !== '' ? `${escapeHtml(calendarEvent.reminder_minutes)} min` : '-'}</p>
+                    <p><strong>Ricorrenza:</strong> ${escapeHtml(recurrenceSummary(calendarEvent.recurrence))}</p>
+                </div>
+                <div class="v24-smh-reader-actions">
+                    ${standardActions}
+                    ${occurrenceActions}
+                </div>
+            </div>
+            <div class="v24-smh-detail-grid">
+                <div>
+                    <h3>Partecipanti</h3>
+                    ${renderAttendees(calendarEvent.attendees)}
+                </div>
+                <div>
+                    <h3>Categorie</h3>
+                    ${renderTagList(categories, 'Nessuna categoria assegnata.')}
+                </div>
+            </div>
+            <div class="v24-smh-detail-grid">
+                <div>
+                    <h3>Descrizione</h3>
+                    <div class="v24-smh-body"><pre>${escapeHtml(calendarEvent.description || 'Nessuna descrizione.')}</pre></div>
+                </div>
+            </div>
+        `;
+    }
+
+    function openEventForm(calendarEvent, mode) {
+        const eventData = calendarEvent || null;
+        state.currentEvent = eventData;
+        state.editingEventId = eventData ? eventData.id : null;
+        state.eventEditMode = mode || 'series';
+        region('event-form-title').textContent = eventData ? 'Modifica evento' : 'Nuovo evento';
+        region('event-form-scope').textContent = !eventData
+            ? 'Nuovo evento sul calendario selezionato.'
+            : (state.eventEditMode === 'occurrence' ? 'Le modifiche verranno applicate solo a questa occorrenza.' : 'Le modifiche verranno applicate al record selezionato.');
+
+        populateEventCalendars(eventData ? eventData.calendar_id : selectedEditableCalendarId());
+        eventField('title').value = eventData ? eventData.title || '' : '';
+        eventField('location').value = eventData ? eventData.location || '' : '';
+        eventField('start').value = eventData ? formatDateTime(eventData.start_at || '') : '';
+        eventField('end').value = eventData ? formatDateTime(eventData.end_at || '') : '';
+        eventField('timezone').value = eventData ? eventData.timezone || 'Europe/Rome' : 'Europe/Rome';
+        eventField('status').value = eventData ? eventData.status || 'confirmed' : 'confirmed';
+        eventField('busy-status').value = eventData ? eventData.busy_status || 'busy' : 'busy';
+        eventField('reminder-minutes').value = eventData && eventData.reminder_minutes !== null ? eventData.reminder_minutes : '';
+        eventField('all-day').checked = eventData ? Boolean(Number(eventData.is_all_day || 0)) : false;
+        eventField('attendees').value = eventData ? (eventData.attendees || []).map((attendee) => attendee.name ? `${attendee.name} <${attendee.email}>` : attendee.email).join(', ') : '';
+        eventField('categories').value = eventData ? (eventData.categories || safeJson(eventData.categories_json)).join(', ') : '';
+        eventField('description').value = eventData ? eventData.description || '' : '';
+
+        const recurrence = eventData && state.eventEditMode !== 'occurrence' ? (eventData.recurrence || {}) : {};
+        eventField('recurrence-frequency').value = recurrence.frequency || 'none';
+        eventField('recurrence-interval').value = recurrence.interval || 1;
+        eventField('recurrence-weekdays').value = (recurrence.weekdays || []).join(',');
+        eventField('recurrence-monthly-mode').value = recurrence.monthly_mode || 'day_of_month';
+        eventField('recurrence-month-day').value = recurrence.month_day || 1;
+        eventField('recurrence-nth-week').value = recurrence.nth_week || 1;
+        eventField('recurrence-nth-weekday').value = recurrence.nth_weekday || 'MO';
+        eventField('recurrence-months').value = (recurrence.months || []).join(',');
+        eventField('recurrence-until').value = recurrence.until ? formatDateTime(recurrence.until) : '';
+        eventField('recurrence-count').value = recurrence.count || '';
+
+        region('event-form-sheet').hidden = false;
+    }
+
+    function buildEventRecurrencePayload() {
+        const frequency = eventField('recurrence-frequency').value;
+        if (!frequency || frequency === 'none' || state.eventEditMode === 'occurrence') {
+            return null;
+        }
+
+        return {
+            frequency,
+            interval: Number(eventField('recurrence-interval').value || 1),
+            weekdays: splitCsv(eventField('recurrence-weekdays').value.toUpperCase()),
+            monthly_mode: eventField('recurrence-monthly-mode').value,
+            month_day: Number(eventField('recurrence-month-day').value || 1),
+            nth_week: Number(eventField('recurrence-nth-week').value || 1),
+            nth_weekday: eventField('recurrence-nth-weekday').value,
+            months: splitCsv(eventField('recurrence-months').value).map((item) => Number(item)).filter((item) => item >= 1 && item <= 12),
+            until: eventField('recurrence-until').value ? toMysqlDateTime(eventField('recurrence-until').value) : '',
+            count: eventField('recurrence-count').value ? Number(eventField('recurrence-count').value) : ''
+        };
+    }
+
+    async function submitEvent(event) {
+        event.preventDefault();
+
+        const payload = {
+            calendar_id: Number(eventField('calendar').value || 0),
+            title: eventField('title').value,
+            location: eventField('location').value,
+            start_at: toMysqlDateTime(eventField('start').value),
+            end_at: toMysqlDateTime(eventField('end').value),
+            timezone: eventField('timezone').value,
+            status: eventField('status').value,
+            busy_status: eventField('busy-status').value,
+            reminder_minutes: eventField('reminder-minutes').value,
+            is_all_day: eventField('all-day').checked,
+            categories: splitCsv(eventField('categories').value),
+            description: eventField('description').value,
+            recurrence: buildEventRecurrencePayload(),
+            attendees: splitAttendees(eventField('attendees').value).map((attendee) => ({
+                email: attendee.email,
+                name: attendee.name,
+                role: 'required',
+                response_status: 'needs_action'
+            }))
+        };
+
+        let result;
+        if (state.editingEventId) {
+            if (state.eventEditMode === 'occurrence' && state.currentEvent && state.currentEvent.is_occurrence) {
+                payload.scope = 'occurrence';
+                payload.occurrence_start = state.currentEvent.occurrence_start;
+            } else {
+                payload.scope = 'series';
+            }
+
+            result = await api(`/calendar/events/${state.editingEventId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+        } else {
+            result = await api('/calendar/events', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        }
+
+        region('event-form-sheet').hidden = true;
+        await loadCalendars();
+        await loadEvents();
+
+        if (result.data && result.data.id) {
+            const loaded = await api(`/calendar/events/${result.data.id}`);
+            await openEvent(loaded.data);
+        }
+
+        setStatus('Evento salvato.');
+    }
+
+    async function deleteCurrentEvent(scope) {
+        if (!state.currentEvent) {
+            return;
+        }
+
+        if (!window.confirm('Eliminare questo evento?')) {
+            return;
+        }
+
+        let path = `/calendar/events/${state.currentEvent.id}`;
+        if (scope === 'occurrence' && state.currentEvent.occurrence_start) {
+            const params = new URLSearchParams({
+                scope: 'occurrence',
+                occurrence_start: state.currentEvent.occurrence_start
+            });
+            path += `?${params.toString()}`;
+        }
+
+        await api(path, { method: 'DELETE' });
+        state.currentEvent = null;
+        region('event-reader').innerHTML = '<p>Evento eliminato.</p>';
+        await loadEvents();
+        setStatus('Evento eliminato.');
+    }
+
+    function openCalendarForm(calendar) {
+        state.editingCalendarId = calendar ? calendar.id : null;
+        region('calendar-form-title').textContent = calendar ? 'Modifica calendario' : 'Nuovo calendario';
+        calendarField('name').value = calendar ? calendar.name || '' : '';
+        calendarField('color').value = calendar ? calendar.color || '#0d5c63' : '#0d5c63';
+        calendarField('description').value = calendar ? calendar.description || '' : '';
+        renderCalendarShareOptions(calendar || null);
+        region('calendar-form-sheet').hidden = false;
+    }
+
+    async function submitCalendar(event) {
+        event.preventDefault();
+        const payload = {
+            name: calendarField('name').value,
+            color: calendarField('color').value,
+            description: calendarField('description').value
+        };
+
+        let result;
+        if (state.editingCalendarId) {
+            result = await api(`/calendar/calendars/${state.editingCalendarId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+            await api(`/calendar/calendars/${state.editingCalendarId}/shares`, {
+                method: 'PUT',
+                body: JSON.stringify({ shares: collectCalendarShares() })
+            });
+        } else {
+            result = await api('/calendar/calendars', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            if (result.data && result.data.id) {
+                await api(`/calendar/calendars/${result.data.id}/shares`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ shares: collectCalendarShares() })
+                });
+            }
+        }
+
+        region('calendar-form-sheet').hidden = true;
+        await loadCalendars();
+        if (result.data && result.data.id) {
+            state.selectedCalendarId = result.data.id;
+            state.currentCalendar = state.calendars.find((calendar) => Number(calendar.id) === Number(result.data.id)) || null;
+            renderCalendars();
+        }
+        await loadEvents();
+        setStatus('Calendario salvato.');
+    }
+
+    async function deleteCurrentCalendar() {
+        if (!state.currentCalendar || !window.confirm('Eliminare questo calendario?')) {
+            return;
+        }
+
+        await api(`/calendar/calendars/${state.currentCalendar.id}`, { method: 'DELETE' });
+        state.currentCalendar = null;
+        state.selectedCalendarId = null;
+        await loadCalendars();
+        await loadEvents();
+        setStatus('Calendario eliminato.');
+    }
+
+    function populateTaskUsers(selectedId) {
+        const target = taskField('assigned-user');
+        if (!target) {
+            return;
+        }
+
+        target.innerHTML = '';
+        target.appendChild(createOption('', 'Non assegnato', !selectedId));
+        state.users.forEach((user) => {
+            target.appendChild(createOption(user.id, user.display_name || user.email, Number(user.id) === Number(selectedId)));
+        });
+    }
+
+    async function loadTasks() {
+        const params = new URLSearchParams({
+            search: region('tasks-search').value || '',
+            status: region('tasks-status-filter').value || ''
+        });
+        const result = await api(`/tasks?${params.toString()}`);
+        const tasks = result.data || [];
+        const target = region('tasks');
+        target.innerHTML = '';
+
+        if (!tasks.length) {
+            target.innerHTML = '<p>Nessun task trovato.</p>';
+            region('task-reader').innerHTML = '<p>Crea un task o modifica i filtri di ricerca.</p>';
+            setStatus('Nessun task.');
+            return;
+        }
+
+        tasks.forEach((task) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'v24-smh-record';
+            button.setAttribute('data-task-id', task.id);
+            button.innerHTML = `
+                <strong>${escapeHtml(task.title || '')}</strong>
+                <span>${escapeHtml(task.status || '')}</span>
+                <small>${escapeHtml([task.priority, task.assigned_user_name, task.due_at ? formatDisplayDate(task.due_at) : ''].filter(Boolean).join(' | '))}</small>
+            `;
+            button.addEventListener('click', () => openTask(task.id));
+            target.appendChild(button);
+        });
+
+        setStatus(`${tasks.length} task caricati.`);
+    }
+
+    async function openTask(id) {
+        const result = await api(`/tasks/${id}`);
+        state.currentTask = result.data;
+        highlightSelection(region('tasks'), 'data-task-id', id);
+        renderTask(state.currentTask);
+        setStatus('Task aperto.');
+    }
+
+    function renderTask(task) {
+        region('task-reader').innerHTML = `
+            <div class="v24-smh-reader-header">
+                <div>
+                    <h2>${escapeHtml(task.title || '')}</h2>
+                    <p><strong>Stato:</strong> ${escapeHtml(task.status || 'not_started')}</p>
+                    <p><strong>Priorita:</strong> ${escapeHtml(task.priority || 'normal')}</p>
+                    <p><strong>Assegnato a:</strong> ${escapeHtml(task.assigned_user_name || '-')}</p>
+                    <p><strong>Scadenza:</strong> ${task.due_at ? escapeHtml(formatDisplayDate(task.due_at)) : '-'}</p>
+                    <p><strong>Promemoria:</strong> ${task.reminder_at ? escapeHtml(formatDisplayDate(task.reminder_at)) : '-'}</p>
+                    <p><strong>Completamento:</strong> ${escapeHtml(task.percent_complete || 0)}%</p>
+                </div>
+                <div class="v24-smh-reader-actions">
+                    ${task.can_edit ? '<button type="button" data-action="edit-task">Modifica</button>' : ''}
+                    ${task.can_delete ? '<button type="button" data-action="delete-task">Elimina</button>' : ''}
+                </div>
+            </div>
+            <div class="v24-smh-detail-grid">
+                <div>
+                    <h3>Categorie</h3>
+                    ${renderTagList(task.categories || [], 'Nessuna categoria assegnata.')}
+                </div>
+                <div>
+                    <h3>Collegamenti</h3>
+                    ${renderTagList([
+                        task.related_message_id ? `Messaggio #${task.related_message_id}` : '',
+                        task.related_contact_id ? `Contatto #${task.related_contact_id}` : '',
+                        task.related_event_id ? `Evento #${task.related_event_id}` : ''
+                    ].filter(Boolean), 'Nessun collegamento.')}
+                </div>
+            </div>
+            <div class="v24-smh-detail-grid">
+                <div>
+                    <h3>Descrizione</h3>
+                    <div class="v24-smh-body"><pre>${escapeHtml(task.description || 'Nessuna descrizione.')}</pre></div>
+                </div>
+            </div>
+        `;
+    }
+
+    function openTaskForm(task) {
+        state.editingTaskId = task ? task.id : null;
+        region('task-form-title').textContent = task ? 'Modifica task' : 'Nuovo task';
+        populateTaskUsers(task ? task.assigned_user_id : '');
+        taskField('title').value = task ? task.title || '' : '';
+        taskField('status').value = task ? task.status || 'not_started' : 'not_started';
+        taskField('priority').value = task ? task.priority || 'normal' : 'normal';
+        taskField('start').value = task ? formatDateTime(task.start_at || '') : '';
+        taskField('due').value = task ? formatDateTime(task.due_at || '') : '';
+        taskField('reminder').value = task ? formatDateTime(task.reminder_at || '') : '';
+        taskField('percent').value = task ? task.percent_complete || 0 : 0;
+        taskField('related-message-id').value = task ? task.related_message_id || '' : '';
+        taskField('related-contact-id').value = task ? task.related_contact_id || '' : '';
+        taskField('related-event-id').value = task ? task.related_event_id || '' : '';
+        taskField('categories').value = task ? (task.categories || []).join(', ') : '';
+        taskField('description').value = task ? task.description || '' : '';
+        region('task-form-sheet').hidden = false;
+    }
+
+    async function submitTask(event) {
+        event.preventDefault();
+        const payload = {
+            title: taskField('title').value,
+            status: taskField('status').value,
+            priority: taskField('priority').value,
+            assigned_user_id: Number(taskField('assigned-user').value || 0),
+            start_at: toMysqlDateTime(taskField('start').value),
+            due_at: toMysqlDateTime(taskField('due').value),
+            reminder_at: toMysqlDateTime(taskField('reminder').value),
+            percent_complete: Number(taskField('percent').value || 0),
+            related_message_id: Number(taskField('related-message-id').value || 0),
+            related_contact_id: Number(taskField('related-contact-id').value || 0),
+            related_event_id: Number(taskField('related-event-id').value || 0),
+            categories: splitCsv(taskField('categories').value),
+            description: taskField('description').value
+        };
+
+        let result;
+        if (state.editingTaskId) {
+            result = await api(`/tasks/${state.editingTaskId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+        } else {
+            result = await api('/tasks', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        }
+
+        region('task-form-sheet').hidden = true;
+        await loadTasks();
+        if (result.data && result.data.id) {
+            await openTask(result.data.id);
+        }
+        setStatus('Task salvato.');
+    }
+
+    async function deleteCurrentTask() {
+        if (!state.currentTask || !window.confirm('Eliminare questo task?')) {
+            return;
+        }
+
+        await api(`/tasks/${state.currentTask.id}`, { method: 'DELETE' });
+        state.currentTask = null;
+        region('task-reader').innerHTML = '<p>Task eliminato.</p>';
+        await loadTasks();
+        setStatus('Task eliminato.');
+    }
+
+    async function loadRulesContext() {
+        if (!state.accounts.length) {
+            await loadAccounts();
+        }
+
+        state.rulesAccountId = state.rulesAccountId || (state.accounts[0] ? state.accounts[0].id : null);
+        populateRulesAccountSelect();
+        if (!state.rulesAccountId) {
+            region('rules').innerHTML = '<p>Nessun account disponibile per le regole.</p>';
+            return;
+        }
+
+        await loadRuleFolders(state.rulesAccountId);
+        await loadRules();
+    }
+
+    async function loadRuleFolders(accountId) {
+        const result = await api(`/mail/folders?account_id=${accountId}`);
+        state.ruleFolders = result.data || [];
+        populateRuleFolders();
+    }
+
+    function populateRuleFolders(selectedConditionId, selectedActionId) {
+        const conditionTarget = ruleField('folder-id');
+        const actionTarget = ruleField('move-to-folder-id');
+        conditionTarget.innerHTML = '';
+        actionTarget.innerHTML = '';
+        conditionTarget.appendChild(createOption('', 'Qualsiasi cartella', !selectedConditionId));
+        actionTarget.appendChild(createOption('', 'Nessuno spostamento', !selectedActionId));
+
+        state.ruleFolders.forEach((folder) => {
+            conditionTarget.appendChild(createOption(folder.id, folderDisplayName(folder), Number(folder.id) === Number(selectedConditionId)));
+            actionTarget.appendChild(createOption(folder.id, folderDisplayName(folder), Number(folder.id) === Number(selectedActionId)));
+        });
+    }
+
+    async function loadRules(options = {}) {
+        if (!state.rulesAccountId) {
+            return;
+        }
+
+        const result = await api(`/rules?account_id=${state.rulesAccountId}`);
+        const rules = result.data || [];
+        const target = region('rules');
+        target.innerHTML = '';
+
+        if (!rules.length) {
+            target.innerHTML = '<p>Nessuna regola configurata.</p>';
+            region('rule-reader').innerHTML = '<p>Crea una regola per smistare automaticamente la posta.</p>';
+            setStatus('Nessuna regola.');
+            return;
+        }
+
+        rules.forEach((rule) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'v24-smh-record';
+            button.setAttribute('data-rule-id', rule.id);
+            button.innerHTML = `
+                <strong>${escapeHtml(rule.name || '')}</strong>
+                <span>${rule.is_active ? 'Attiva' : 'Disattiva'}</span>
+                <small>${escapeHtml(`Ordine ${rule.sort_order || 0} | ${rule.match_mode || 'all'}`)}</small>
+            `;
+            button.addEventListener('click', () => openRule(rule.id));
+            target.appendChild(button);
+        });
+
+        if (!options.silentStatus) {
+            setStatus(`${rules.length} regole caricate.`);
+        }
+    }
+
+    async function openRule(id, options = {}) {
+        const result = await api(`/rules/${id}`);
+        state.currentRule = result.data;
+        highlightSelection(region('rules'), 'data-rule-id', id);
+        renderRule(state.currentRule);
+        if (!options.silentStatus) {
+            setStatus('Regola aperta.');
+        }
+    }
+
+    function renderRule(rule) {
+        const conditions = rule.conditions || {};
+        const actions = rule.actions || {};
+        region('rule-reader').innerHTML = `
+            <div class="v24-smh-reader-header">
+                <div>
+                    <h2>${escapeHtml(rule.name || '')}</h2>
+                    <p><strong>Stato:</strong> ${rule.is_active ? 'Attiva' : 'Disattiva'}</p>
+                    <p><strong>Ordine:</strong> ${escapeHtml(rule.sort_order || 0)}</p>
+                    <p><strong>Match:</strong> ${escapeHtml(rule.match_mode || 'all')}</p>
+                    <p><strong>Esecuzioni:</strong> ${escapeHtml(rule.times_applied || 0)}</p>
+                </div>
+                <div class="v24-smh-reader-actions">
+                    <button type="button" data-action="run-current-rule">Esegui regola</button>
+                    <button type="button" data-action="edit-rule">Modifica</button>
+                    <button type="button" data-action="delete-rule">Elimina</button>
+                </div>
+            </div>
+            <div class="v24-smh-detail-grid">
+                <div>
+                    <h3>Condizioni</h3>
+                    ${renderTagList([
+                        conditions.match_all ? 'Applica a tutti i messaggi' : '',
+                        conditions.folder_id ? `Cartella #${conditions.folder_id}` : '',
+                        conditions.from_contains ? `Da contiene: ${conditions.from_contains}` : '',
+                        conditions.subject_contains ? `Oggetto contiene: ${conditions.subject_contains}` : '',
+                        conditions.preview_contains ? `Anteprima contiene: ${conditions.preview_contains}` : '',
+                        conditions.recipients_contains ? `Destinatari contengono: ${conditions.recipients_contains}` : '',
+                        conditions.has_attachments !== null && conditions.has_attachments !== undefined ? `Allegati: ${conditions.has_attachments ? 'si' : 'no'}` : '',
+                        conditions.is_seen !== null && conditions.is_seen !== undefined ? `Letto: ${conditions.is_seen ? 'si' : 'no'}` : '',
+                        conditions.is_flagged !== null && conditions.is_flagged !== undefined ? `Flag: ${conditions.is_flagged ? 'si' : 'no'}` : ''
+                    ].filter(Boolean), 'Nessuna condizione disponibile.')}
+                </div>
+                <div>
+                    <h3>Azioni</h3>
+                    ${renderTagList([
+                        actions.move_to_folder_id ? `Sposta in cartella #${actions.move_to_folder_id}` : '',
+                        actions.mark_seen !== null && actions.mark_seen !== undefined ? `Segna letto: ${actions.mark_seen ? 'si' : 'no'}` : '',
+                        actions.set_flagged !== null && actions.set_flagged !== undefined ? `Flag: ${actions.set_flagged ? 'aggiungi' : 'rimuovi'}` : '',
+                        actions.delete_message ? 'Elimina il messaggio' : '',
+                        rule.stop_processing ? 'Ferma le regole successive' : ''
+                    ].filter(Boolean), 'Nessuna azione disponibile.')}
+                </div>
+            </div>
+        `;
+    }
+
+    function openRuleForm(rule) {
+        state.editingRuleId = rule ? rule.id : null;
+        region('rule-form-title').textContent = rule ? 'Modifica regola' : 'Nuova regola';
+        const conditions = rule ? rule.conditions || {} : {};
+        const actions = rule ? rule.actions || {} : {};
+        populateRuleFolders(conditions.folder_id, actions.move_to_folder_id);
+
+        ruleField('name').value = rule ? rule.name || '' : '';
+        ruleField('active').value = rule && !rule.is_active ? '0' : '1';
+        ruleField('sort-order').value = rule ? rule.sort_order || 0 : 0;
+        ruleField('match-mode').value = rule ? rule.match_mode || 'all' : 'all';
+        ruleField('stop-processing').checked = rule ? Boolean(Number(rule.stop_processing || 0)) : false;
+        ruleField('match-all').checked = Boolean(conditions.match_all);
+        ruleField('from-contains').value = conditions.from_contains || '';
+        ruleField('subject-contains').value = conditions.subject_contains || '';
+        ruleField('preview-contains').value = conditions.preview_contains || '';
+        ruleField('recipients-contains').value = conditions.recipients_contains || '';
+        ruleField('has-attachments').value = conditions.has_attachments === null || conditions.has_attachments === undefined ? '' : (conditions.has_attachments ? '1' : '0');
+        ruleField('is-seen').value = conditions.is_seen === null || conditions.is_seen === undefined ? '' : (conditions.is_seen ? '1' : '0');
+        ruleField('is-flagged').value = conditions.is_flagged === null || conditions.is_flagged === undefined ? '' : (conditions.is_flagged ? '1' : '0');
+        ruleField('mark-seen').value = actions.mark_seen === null || actions.mark_seen === undefined ? '' : (actions.mark_seen ? '1' : '0');
+        ruleField('set-flagged').value = actions.set_flagged === null || actions.set_flagged === undefined ? '' : (actions.set_flagged ? '1' : '0');
+        ruleField('delete-message').checked = Boolean(actions.delete_message);
+        region('rule-form-sheet').hidden = false;
+    }
+
+    async function submitRule(event) {
+        event.preventDefault();
+        const payload = {
+            account_id: Number(state.rulesAccountId || 0),
+            name: ruleField('name').value,
+            is_active: ruleField('active').value === '1',
+            sort_order: Number(ruleField('sort-order').value || 0),
+            match_mode: ruleField('match-mode').value,
+            stop_processing: ruleField('stop-processing').checked,
+            conditions: {
+                match_all: ruleField('match-all').checked,
+                folder_id: Number(ruleField('folder-id').value || 0),
+                from_contains: ruleField('from-contains').value,
+                subject_contains: ruleField('subject-contains').value,
+                preview_contains: ruleField('preview-contains').value,
+                recipients_contains: ruleField('recipients-contains').value,
+                has_attachments: boolFromSelect(ruleField('has-attachments').value),
+                is_seen: boolFromSelect(ruleField('is-seen').value),
+                is_flagged: boolFromSelect(ruleField('is-flagged').value)
+            },
+            actions: {
+                move_to_folder_id: Number(ruleField('move-to-folder-id').value || 0),
+                mark_seen: boolFromSelect(ruleField('mark-seen').value),
+                set_flagged: boolFromSelect(ruleField('set-flagged').value),
+                delete_message: ruleField('delete-message').checked
+            }
+        };
+
+        let result;
+        if (state.editingRuleId) {
+            result = await api(`/rules/${state.editingRuleId}`, {
+                method: 'PUT',
+                body: JSON.stringify(payload)
+            });
+        } else {
+            result = await api('/rules', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+        }
+
+        region('rule-form-sheet').hidden = true;
+        await loadRules({ silentStatus: true });
+        if (result.data && result.data.id) {
+            await openRule(result.data.id, { silentStatus: true });
+        }
+        setStatus('Regola salvata.');
+    }
+
+    async function deleteCurrentRule() {
+        if (!state.currentRule || !window.confirm('Eliminare questa regola?')) {
+            return;
+        }
+
+        await api(`/rules/${state.currentRule.id}`, { method: 'DELETE' });
+        state.currentRule = null;
+        region('rule-reader').innerHTML = '<p>Regola eliminata.</p>';
+        await loadRules();
+        setStatus('Regola eliminata.');
+    }
+
+    async function runRules(ruleId) {
+        if (!state.rulesAccountId) {
+            return;
+        }
+
+        const result = await api('/rules/run', {
+            method: 'POST',
+            body: JSON.stringify({
+                account_id: state.rulesAccountId,
+                rule_id: ruleId || null
+            })
+        });
+
+        const data = result.data || {};
+        await loadRules({ silentStatus: true });
+        if (state.currentRule && state.currentRule.id) {
+            await openRule(state.currentRule.id, { silentStatus: true });
+        }
+        setStatus(`Regole eseguite. Messaggi analizzati: ${data.processed || 0}, match: ${data.matched || 0}.`);
+    }
+
+    app.addEventListener('contextmenu', (event) => {
+        if (!event.target.closest('[data-folder-id]') && !event.target.closest('[data-region="folder-context-menu"]')) {
+            closeFolderContextMenu();
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('[data-region="folder-context-menu"]') && !event.target.closest('[data-folder-id]')) {
+            closeFolderContextMenu();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeFolderContextMenu();
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        closeFolderContextMenu();
+    });
+
+    app.addEventListener('click', async (event) => {
+        const folderMenuAction = event.target.closest('[data-folder-menu-action]');
+        if (folderMenuAction) {
+            try {
+                await handleFolderMenuAction(folderMenuAction.getAttribute('data-folder-menu-action'));
+            } catch (error) {
+                setStatus(error.message || 'Operazione cartella non riuscita.');
+            }
+            return;
+        }
+
+        const actionTarget = event.target.closest('[data-action]');
+        if (!actionTarget) {
+            return;
+        }
+
+        const action = actionTarget.getAttribute('data-action');
+
+        try {
+            if (action === 'switch-module') {
+                setActiveModule(actionTarget.getAttribute('data-module'));
+            } else if (action === 'sync') {
+                await sync();
+            } else if (action === 'compose') {
+                openCompose('new');
+            } else if (action === 'close-compose') {
+                closeCompose();
+            } else if (action === 'search') {
+                await loadMessages();
+            } else if (action === 'reply') {
+                openCompose('reply');
+            } else if (action === 'reply-all') {
+                openCompose('reply_all');
+            } else if (action === 'forward') {
+                openCompose('forward');
+            } else if (action === 'toggle-seen') {
+                await toggleSeen();
+            } else if (action === 'toggle-flag') {
+                await toggleFlag();
+            } else if (action === 'move-message') {
+                await moveCurrentMessage();
+            } else if (action === 'delete-message') {
+                await deleteCurrentMessage();
+            } else if (action === 'download-attachment') {
+                await downloadAttachment(actionTarget.getAttribute('data-attachment-id'));
+            } else if (action === 'search-contacts') {
+                await loadContacts();
+            } else if (action === 'select-contact-group') {
+                state.contactGroup = actionTarget.getAttribute('data-group-key') || 'all';
+                renderContactGroups();
+                renderContactList();
+            } else if (action === 'new-contact') {
+                openContactForm(null);
+            } else if (action === 'close-contact-form') {
+                closeContactForm();
+            } else if (action === 'edit-contact' && state.currentContact) {
+                openContactForm(state.currentContact);
+            } else if (action === 'delete-contact') {
+                await deleteCurrentContact();
+            } else if (action === 'compose-contact' && state.currentContact) {
+                openComposeTo(state.currentContact.primary_email || '');
+            } else if (action === 'switch-calendar-view') {
+                state.calendarView = actionTarget.getAttribute('data-view') || 'week';
+                ensureCalendarRange();
+                await loadEvents();
+            } else if (action === 'calendar-prev') {
+                calendarNavigate(-1);
+                await loadEvents();
+            } else if (action === 'calendar-next') {
+                calendarNavigate(1);
+                await loadEvents();
+            } else if (action === 'calendar-today') {
+                calendarNavigate('today');
+                await loadEvents();
+            } else if (action === 'calendar-mini-day') {
+                state.calendarCursor = actionTarget.getAttribute('data-date') || formatDateOnly(new Date());
+                if (actionTarget.classList.contains('v24-smh-calendar-day-head')) {
+                    state.calendarView = 'day';
+                }
+                await loadEvents();
+            } else if (action === 'open-calendar-event') {
+                await openEventByKey(actionTarget.getAttribute('data-event-key'));
+            } else if (action === 'new-event-slot') {
+                const date = actionTarget.getAttribute('data-date') || formatDateOnly(new Date());
+                const hour = Number(actionTarget.getAttribute('data-hour') || 9);
+                const startAt = `${date} ${pad2(hour)}:00:00`;
+                const endAt = `${date} ${pad2(Math.min(hour + 1, 23))}:00:00`;
+                openEventForm({
+                    calendar_id: state.currentCalendar ? state.currentCalendar.id : selectedEditableCalendarId(),
+                    start_at: startAt,
+                    end_at: endAt
+                }, 'series');
+            } else if (action === 'load-calendar') {
+                await loadEvents();
+            } else if (action === 'new-calendar') {
+                await loadWorkspaceUsers();
+                openCalendarForm(null);
+            } else if (action === 'new-event') {
+                openEventForm(null, 'series');
+            } else if (action === 'new-event-on-calendar') {
+                openEventForm({
+                    calendar_id: state.currentCalendar ? state.currentCalendar.id : selectedEditableCalendarId()
+                }, 'series');
+            } else if (action === 'close-event-form') {
+                region('event-form-sheet').hidden = true;
+            } else if (action === 'close-calendar-form') {
+                region('calendar-form-sheet').hidden = true;
+            } else if (action === 'edit-calendar' && state.currentCalendar) {
+                await loadWorkspaceUsers();
+                openCalendarForm(state.currentCalendar);
+            } else if (action === 'delete-calendar') {
+                await deleteCurrentCalendar();
+            } else if (action === 'edit-event' && state.currentEvent) {
+                openEventForm(state.currentEvent, 'series');
+            } else if (action === 'edit-event-series' && state.currentEvent) {
+                openEventForm(state.currentEvent, 'series');
+            } else if (action === 'edit-event-occurrence' && state.currentEvent) {
+                openEventForm(state.currentEvent, 'occurrence');
+            } else if (action === 'delete-event') {
+                await deleteCurrentEvent('series');
+            } else if (action === 'delete-event-occurrence') {
+                await deleteCurrentEvent('occurrence');
+            } else if (action === 'load-tasks') {
+                await loadTasks();
+            } else if (action === 'new-task') {
+                await loadWorkspaceUsers();
+                openTaskForm(null);
+            } else if (action === 'edit-task' && state.currentTask) {
+                await loadWorkspaceUsers();
+                openTaskForm(state.currentTask);
+            } else if (action === 'delete-task') {
+                await deleteCurrentTask();
+            } else if (action === 'close-task-form') {
+                region('task-form-sheet').hidden = true;
+            } else if (action === 'load-rules') {
+                await loadRulesContext();
+            } else if (action === 'new-rule') {
+                await loadRulesContext();
+                openRuleForm(null);
+            } else if (action === 'edit-rule' && state.currentRule) {
+                openRuleForm(state.currentRule);
+            } else if (action === 'delete-rule') {
+                await deleteCurrentRule();
+            } else if (action === 'close-rule-form') {
+                region('rule-form-sheet').hidden = true;
+            } else if (action === 'run-rules') {
+                await runRules(null);
+            } else if (action === 'run-current-rule' && state.currentRule) {
+                await runRules(state.currentRule.id);
+            }
+        } catch (error) {
+            setStatus(error.message || 'Operazione non riuscita.');
+        }
+    });
+
+    app.querySelector('[data-form="compose"]').addEventListener('submit', (event) => {
+        submitCompose(event).catch((error) => setStatus(error.message || 'Invio non riuscito.'));
+    });
+
+    if (composeEditor()) {
+        composeEditor().addEventListener('input', () => {
+            syncComposeBody();
+        });
+    }
+
+    app.querySelector('[data-form="contact"]').addEventListener('submit', (event) => {
+        submitContact(event).catch((error) => setStatus(error.message || 'Salvataggio contatto non riuscito.'));
+    });
+
+    app.querySelector('[data-form="event"]').addEventListener('submit', (event) => {
+        submitEvent(event).catch((error) => setStatus(error.message || 'Salvataggio evento non riuscito.'));
+    });
+
+    app.querySelector('[data-form="calendar"]').addEventListener('submit', (event) => {
+        submitCalendar(event).catch((error) => setStatus(error.message || 'Salvataggio calendario non riuscito.'));
+    });
+
+    app.querySelector('[data-form="task"]').addEventListener('submit', (event) => {
+        submitTask(event).catch((error) => setStatus(error.message || 'Salvataggio task non riuscito.'));
+    });
+
+    app.querySelector('[data-form="rule"]').addEventListener('submit', (event) => {
+        submitRule(event).catch((error) => setStatus(error.message || 'Salvataggio regola non riuscito.'));
+    });
+
+    region('search').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            loadMessages().catch((error) => setStatus(error.message || 'Ricerca non riuscita.'));
+        }
+    });
+
+    region('contacts-search').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            loadContacts().catch((error) => setStatus(error.message || 'Ricerca contatti non riuscita.'));
+        }
+    });
+
+    if (region('contact-groups-search')) {
+        region('contact-groups-search').addEventListener('input', () => {
+            renderContactGroups();
+        });
+    }
+
+    if (region('calendar-search')) {
+        region('calendar-search').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                renderCalendarBoard();
+            }
+        });
+        region('calendar-search').addEventListener('input', () => {
+            renderCalendarBoard();
+        });
+    }
+
+    if (region('calendar-filter')) {
+        region('calendar-filter').addEventListener('input', () => {
+            renderCalendars();
+        });
+    }
+
+    region('tasks-search').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            loadTasks().catch((error) => setStatus(error.message || 'Ricerca task non riuscita.'));
+        }
+    });
+
+    region('rules-account').addEventListener('change', (event) => {
+        state.rulesAccountId = Number(event.target.value || 0);
+        loadRulesContext().catch((error) => setStatus(error.message || 'Cambio account regole non riuscito.'));
+    });
+
+    ensureCalendarRange();
+    loadAccounts().catch((error) => setStatus(error.message || 'Caricamento iniziale non riuscito.'));
+})();

@@ -1,0 +1,355 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Mail_Repository
+{
+    private function messages(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . V24_SMH_TABLE_PREFIX . 'messages';
+    }
+
+    private function bodies(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . V24_SMH_TABLE_PREFIX . 'message_bodies';
+    }
+
+    private function recipients(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . V24_SMH_TABLE_PREFIX . 'recipients';
+    }
+
+    public function upsert_message(int $account_id, int $folder_id, array $message): int
+    {
+        global $wpdb;
+
+        $uid = (int) ($message['uid'] ?? 0);
+        $existing = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT id FROM {$this->messages()} WHERE account_id = %d AND folder_id = %d AND uid = %d",
+                $account_id,
+                $folder_id,
+                $uid
+            )
+        );
+
+        if (!$existing) {
+            $candidate_id = $this->find_relocatable_message_id($account_id, $message);
+            if ($candidate_id > 0) {
+                $existing = $candidate_id;
+            }
+        }
+
+        $data = [
+            'account_id' => $account_id,
+            'folder_id' => $folder_id,
+            'uid' => $uid ?: null,
+            'remote_id' => isset($message['remote_id']) ? sanitize_text_field($message['remote_id']) : null,
+            'message_id' => isset($message['message_id']) ? sanitize_text_field($message['message_id']) : null,
+            'in_reply_to' => isset($message['in_reply_to']) ? sanitize_text_field($message['in_reply_to']) : null,
+            'references_header' => isset($message['references_header']) ? sanitize_text_field($message['references_header']) : null,
+            'subject' => isset($message['subject']) ? sanitize_text_field($message['subject']) : '',
+            'from_email' => sanitize_email($message['from_email'] ?? ''),
+            'from_name' => isset($message['from_name']) ? sanitize_text_field($message['from_name']) : '',
+            'reply_to_email' => sanitize_email($message['reply_to_email'] ?? ''),
+            'date_sent' => !empty($message['date_sent']) ? sanitize_text_field($message['date_sent']) : null,
+            'date_received' => !empty($message['date_received']) ? sanitize_text_field($message['date_received']) : current_time('mysql'),
+            'size_bytes' => (int) ($message['size_bytes'] ?? 0),
+            'flags_json' => isset($message['flags_json']) ? wp_json_encode($message['flags_json']) : null,
+            'is_seen' => !empty($message['is_seen']) ? 1 : 0,
+            'is_answered' => !empty($message['is_answered']) ? 1 : 0,
+            'is_flagged' => !empty($message['is_flagged']) ? 1 : 0,
+            'has_attachments' => !empty($message['has_attachments']) ? 1 : 0,
+            'preview_text' => isset($message['preview_text']) ? sanitize_text_field($message['preview_text']) : '',
+            'raw_headers' => isset($message['raw_headers']) ? $message['raw_headers'] : null,
+            'is_deleted' => 0,
+            'updated_at' => current_time('mysql'),
+        ];
+
+        if ($existing) {
+            $wpdb->update($this->messages(), $data, ['id' => (int) $existing]);
+            return (int) $existing;
+        }
+
+        $data['created_at'] = current_time('mysql');
+        $wpdb->insert($this->messages(), $data);
+        return (int) $wpdb->insert_id;
+    }
+
+    private function find_relocatable_message_id(int $account_id, array $message): int
+    {
+        global $wpdb;
+
+        $message_id = sanitize_text_field($message['message_id'] ?? '');
+        if ($message_id === '') {
+            return 0;
+        }
+
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT id
+                 FROM {$this->messages()}
+                 WHERE account_id = %d
+                   AND is_deleted = 1
+                   AND message_id = %s
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT 1",
+                $account_id,
+                $message_id
+            )
+        );
+    }
+
+    public function list_messages(int $account_id, int $folder_id, int $page = 1, int $per_page = 25, string $search = '', ?bool $seen = null): array
+    {
+        global $wpdb;
+
+        $offset = max(0, ($page - 1) * $per_page);
+        $where = [
+            'account_id = %d',
+            'folder_id = %d',
+            'is_deleted = 0',
+        ];
+        $params = [$account_id, $folder_id];
+
+        if ($search !== '') {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where[] = '(subject LIKE %s OR from_email LIKE %s OR from_name LIKE %s OR preview_text LIKE %s OR search_text LIKE %s)';
+            array_push($params, $like, $like, $like, $like, $like);
+        }
+
+        if ($seen !== null) {
+            $where[] = 'is_seen = %d';
+            $params[] = $seen ? 1 : 0;
+        }
+
+        $where_sql = implode(' AND ', $where);
+        $total = (int) $wpdb->get_var(
+            $wpdb->prepare("SELECT COUNT(*) FROM {$this->messages()} WHERE {$where_sql}", $params)
+        );
+
+        $query_params = array_merge($params, [$per_page, $offset]);
+        $items = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$this->messages()} WHERE {$where_sql} ORDER BY date_received DESC LIMIT %d OFFSET %d",
+                $query_params
+            ),
+            ARRAY_A
+        );
+
+        return [
+            'items' => $items,
+            'total' => $total,
+            'page' => $page,
+            'per_page' => $per_page,
+        ];
+    }
+
+    public function find(int $message_id): ?array
+    {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->messages()} WHERE id = %d", $message_id), ARRAY_A);
+        return $row ?: null;
+    }
+
+    public function save_body(int $message_id, array $body): void
+    {
+        global $wpdb;
+
+        $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$this->bodies()} WHERE message_id = %d", $message_id));
+        $data = [
+            'message_id' => $message_id,
+            'body_plain' => $body['body_plain'] ?? '',
+            'body_html_raw' => $body['body_html_raw'] ?? '',
+            'body_html_sanitized' => $body['body_html_sanitized'] ?? '',
+            'body_hash' => $body['body_hash'] ?? null,
+            'charset' => $body['charset'] ?? 'UTF-8',
+            'fetched_at' => current_time('mysql'),
+        ];
+
+        if ($exists) {
+            $wpdb->update($this->bodies(), $data, ['id' => (int) $exists]);
+        } else {
+            $wpdb->insert($this->bodies(), $data);
+        }
+
+        $preview = sanitize_text_field($body['preview_text'] ?? '');
+        $search_text = $body['search_text'] ?? '';
+
+        $wpdb->update(
+            $this->messages(),
+            [
+                'body_fetched' => 1,
+                'preview_text' => $preview,
+                'search_text' => $search_text,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $message_id]
+        );
+    }
+
+    public function get_body(int $message_id): ?array
+    {
+        global $wpdb;
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->bodies()} WHERE message_id = %d", $message_id), ARRAY_A);
+        return $row ?: null;
+    }
+
+    public function replace_recipients(int $message_id, array $recipients): void
+    {
+        global $wpdb;
+
+        $wpdb->delete($this->recipients(), ['message_id' => $message_id]);
+
+        foreach ($recipients as $recipient) {
+            $email = sanitize_email($recipient['email'] ?? '');
+            if ($email === '') {
+                continue;
+            }
+
+            $wpdb->insert($this->recipients(), [
+                'message_id' => $message_id,
+                'type' => sanitize_key($recipient['type'] ?? 'to'),
+                'email' => $email,
+                'name' => isset($recipient['name']) ? sanitize_text_field($recipient['name']) : '',
+                'contact_id' => isset($recipient['contact_id']) ? (int) $recipient['contact_id'] : null,
+                'created_at' => current_time('mysql'),
+            ]);
+        }
+    }
+
+    public function get_recipients(int $message_id): array
+    {
+        global $wpdb;
+        return $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, type, email, name, contact_id FROM {$this->recipients()} WHERE message_id = %d ORDER BY id ASC",
+                $message_id
+            ),
+            ARRAY_A
+        );
+    }
+
+    public function update_seen(int $message_id, bool $is_seen): void
+    {
+        global $wpdb;
+        $wpdb->update(
+            $this->messages(),
+            [
+                'is_seen' => $is_seen ? 1 : 0,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $message_id]
+        );
+    }
+
+    public function update_flagged(int $message_id, bool $is_flagged): void
+    {
+        global $wpdb;
+        $wpdb->update(
+            $this->messages(),
+            [
+                'is_flagged' => $is_flagged ? 1 : 0,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $message_id]
+        );
+    }
+
+    public function mark_folder_seen(int $folder_id): void
+    {
+        global $wpdb;
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$this->messages()} SET is_seen = 1, updated_at = %s WHERE folder_id = %d AND is_deleted = 0",
+                current_time('mysql'),
+                $folder_id
+            )
+        );
+    }
+
+    public function mark_folder_deleted(int $folder_id): void
+    {
+        global $wpdb;
+        $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$this->messages()} SET is_deleted = 1, updated_at = %s WHERE folder_id = %d AND is_deleted = 0",
+                current_time('mysql'),
+                $folder_id
+            )
+        );
+    }
+
+    public function move_message(int $message_id, int $folder_id): void
+    {
+        global $wpdb;
+        $wpdb->update(
+            $this->messages(),
+            [
+                'folder_id' => $folder_id,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $message_id]
+        );
+    }
+
+    public function mark_deleted(int $message_id): void
+    {
+        global $wpdb;
+        $wpdb->update(
+            $this->messages(),
+            [
+                'is_deleted' => 1,
+                'updated_at' => current_time('mysql'),
+            ],
+            ['id' => $message_id]
+        );
+    }
+
+    public function folder_counts(int $folder_id): array
+    {
+        global $wpdb;
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT COUNT(*) AS total, SUM(CASE WHEN is_seen = 0 THEN 1 ELSE 0 END) AS unseen FROM {$this->messages()} WHERE folder_id = %d AND is_deleted = 0",
+                $folder_id
+            ),
+            ARRAY_A
+        );
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'unseen' => (int) ($row['unseen'] ?? 0),
+        ];
+    }
+
+    public function list_for_rules(int $account_id, ?int $folder_id = null, array $message_ids = []): array
+    {
+        global $wpdb;
+
+        $where = ['account_id = %d', 'is_deleted = 0'];
+        $params = [$account_id];
+
+        if ($folder_id) {
+            $where[] = 'folder_id = %d';
+            $params[] = $folder_id;
+        }
+
+        if ($message_ids) {
+            $placeholders = implode(',', array_fill(0, count($message_ids), '%d'));
+            $where[] = "id IN ($placeholders)";
+            $params = array_merge($params, array_map('intval', $message_ids));
+        }
+
+        $sql = $wpdb->prepare(
+            "SELECT * FROM {$this->messages()} WHERE " . implode(' AND ', $where) . " ORDER BY date_received DESC, id DESC",
+            $params
+        );
+
+        return $wpdb->get_results($sql, ARRAY_A);
+    }
+}

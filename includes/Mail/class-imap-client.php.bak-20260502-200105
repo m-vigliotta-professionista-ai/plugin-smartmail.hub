@@ -1,0 +1,641 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_IMAP_Client
+{
+    private $stream = null;
+
+    public function test(array $account)
+    {
+        $connected = $this->connect($account, 'INBOX');
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $this->disconnect();
+        return true;
+    }
+
+    public function connect(array $account, string $folder = 'INBOX', bool $read_only = true)
+    {
+        if (!function_exists('imap_open')) {
+            return new WP_Error('imap_extension_missing', 'Estensione PHP IMAP non disponibile.');
+        }
+
+        $username = V24_SMH_Encryption::decrypt($account['encrypted_username'] ?? '');
+        $secret = V24_SMH_Encryption::decrypt($account['encrypted_secret'] ?? '');
+
+        if ($username === '' || $secret === '') {
+            return new WP_Error('imap_failed', 'Credenziali IMAP mancanti.');
+        }
+
+        $flags = $read_only ? OP_READONLY : 0;
+        $mailbox = $this->mailbox($account, $folder);
+        $params = ['DISABLE_AUTHENTICATOR' => 'GSSAPI'];
+
+        $this->stream = @imap_open($mailbox, $username, $secret, $flags, 1, $params);
+        if (!$this->stream) {
+            return new WP_Error('imap_failed', imap_last_error() ?: 'Connessione IMAP non riuscita.');
+        }
+
+        return true;
+    }
+
+    public function disconnect(): void
+    {
+        if ($this->stream) {
+            @imap_close($this->stream);
+            $this->stream = null;
+        }
+    }
+
+    public function list_folders(array $account)
+    {
+        $connected = $this->connect($account, '');
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $root = $this->mailbox($account, '');
+        $folders = @imap_list($this->stream, $root, '*') ?: [];
+        $this->disconnect();
+
+        return array_map(function ($folder) use ($root) {
+            $name = str_replace($root, '', $folder);
+            $normalized = $name ?: 'INBOX';
+
+            return [
+                'remote_id' => $normalized,
+                'name' => $normalized,
+                'full_name' => $normalized,
+                'delimiter' => '/',
+                'special_use' => $this->detect_special_use($normalized),
+            ];
+        }, $folders);
+    }
+
+    public function fetch_headers(array $account, string $folder, int $from_uid = 1, int $limit = 50)
+    {
+        $connected = $this->connect($account, $folder);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $uids = @imap_search($this->stream, 'ALL', SE_UID);
+        if (!$uids) {
+            $this->disconnect();
+            return [];
+        }
+
+        sort($uids, SORT_NUMERIC);
+        $filtered = array_values(array_filter($uids, static function ($uid) use ($from_uid) {
+            return (int) $uid >= max(1, $from_uid);
+        }));
+        $filtered = array_slice($filtered, -abs($limit));
+
+        $messages = [];
+
+        foreach ($filtered as $uid) {
+            $overview = @imap_fetch_overview($this->stream, (string) $uid, FT_UID);
+            if (!$overview || empty($overview[0])) {
+                continue;
+            }
+
+            $raw_headers = (string) @imap_fetchheader($this->stream, (string) $uid, FT_UID);
+            $parsed_headers = function_exists('imap_rfc822_parse_headers') ? @imap_rfc822_parse_headers($raw_headers) : null;
+            $structure = @imap_fetchstructure($this->stream, (string) $uid, FT_UID);
+            $structure_meta = $this->analyze_structure($structure);
+            $item = $overview[0];
+
+            $from = $this->first_address($parsed_headers->from ?? []);
+            $reply_to = $this->first_address($parsed_headers->reply_to ?? []);
+
+            $messages[] = [
+                'uid' => (int) $uid,
+                'message_id' => $this->clean_message_id($this->extract_header_line($raw_headers, 'Message-ID') ?: (string) ($parsed_headers->message_id ?? ($item->message_id ?? ''))),
+                'in_reply_to' => $this->clean_message_id($this->extract_header_line($raw_headers, 'In-Reply-To') ?: (string) ($parsed_headers->in_reply_to ?? '')),
+                'references_header' => $this->clean_header_value($this->extract_header_line($raw_headers, 'References') ?: (string) ($parsed_headers->references ?? '')),
+                'subject' => $this->decode_header($parsed_headers->subject ?? ($item->subject ?? '')),
+                'from_email' => sanitize_email($from['email'] ?? ''),
+                'from_name' => sanitize_text_field($from['name'] ?? ''),
+                'reply_to_email' => sanitize_email($reply_to['email'] ?? ''),
+                'date_sent' => $this->normalize_date($parsed_headers->date ?? ($item->date ?? '')),
+                'date_received' => $this->normalize_date($parsed_headers->date ?? ($item->date ?? '')),
+                'size_bytes' => isset($item->size) ? (int) $item->size : 0,
+                'is_seen' => !empty($item->seen) ? 1 : 0,
+                'is_answered' => !empty($item->answered) ? 1 : 0,
+                'is_flagged' => !empty($item->flagged) ? 1 : 0,
+                'has_attachments' => !empty($structure_meta['attachments']) ? 1 : 0,
+                'preview_text' => '',
+                'flags_json' => [
+                    'seen' => !empty($item->seen),
+                    'answered' => !empty($item->answered),
+                    'flagged' => !empty($item->flagged),
+                ],
+                'raw_headers' => $raw_headers,
+                'recipients' => $this->extract_recipients($parsed_headers),
+                'attachments' => $structure_meta['attachments'],
+            ];
+        }
+
+        $this->disconnect();
+        return $messages;
+    }
+
+    public function fetch_message_payload(array $account, string $folder, int $uid)
+    {
+        $connected = $this->connect($account, $folder);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $raw_headers = (string) @imap_fetchheader($this->stream, (string) $uid, FT_UID);
+        $parsed_headers = function_exists('imap_rfc822_parse_headers') ? @imap_rfc822_parse_headers($raw_headers) : null;
+        $structure = @imap_fetchstructure($this->stream, (string) $uid, FT_UID);
+        $structure_meta = $this->analyze_structure($structure);
+
+        $plain = '';
+        foreach ($structure_meta['plain_sections'] as $section) {
+            $plain .= $this->fetch_section_text($uid, $section);
+        }
+
+        $html = '';
+        foreach ($structure_meta['html_sections'] as $section) {
+            $html .= $this->fetch_section_text($uid, $section);
+        }
+
+        if ($plain === '' && $html === '') {
+            $fallback = @imap_body($this->stream, (string) $uid, FT_UID | FT_PEEK);
+            $plain = V24_SMH_Message_Parser::to_utf8(
+                V24_SMH_Message_Parser::decode_transfer((string) $fallback, (int) ($structure->encoding ?? 0)),
+                $structure_meta['charset'] ?: 'UTF-8'
+            );
+        }
+
+        $body = V24_SMH_Message_Parser::normalize_body(
+            $plain,
+            $html,
+            'UTF-8'
+        );
+
+        $this->disconnect();
+
+        return [
+            'body' => $body,
+            'attachments' => $structure_meta['attachments'],
+            'recipients' => $this->extract_recipients($parsed_headers),
+        ];
+    }
+
+    public function fetch_body(array $account, string $folder, int $uid)
+    {
+        $payload = $this->fetch_message_payload($account, $folder, $uid);
+        if (is_wp_error($payload)) {
+            return $payload;
+        }
+
+        return $payload['body'];
+    }
+
+    public function fetch_attachment_content(array $account, string $folder, int $uid, string $part_id)
+    {
+        $connected = $this->connect($account, $folder);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $structure = @imap_fetchstructure($this->stream, (string) $uid, FT_UID);
+        $structure_meta = $this->analyze_structure($structure);
+        $attachment = $this->find_attachment_by_part($structure_meta['attachments'], $part_id);
+        if (!$attachment) {
+            $this->disconnect();
+            return new WP_Error('attachment_not_found', 'Allegato non trovato.', ['status' => 404]);
+        }
+
+        $raw = @imap_fetchbody($this->stream, (string) $uid, $part_id, FT_UID | FT_PEEK);
+        if ($raw === false && $part_id === '1') {
+            $raw = @imap_body($this->stream, (string) $uid, FT_UID | FT_PEEK);
+        }
+
+        $encoding = isset($attachment['encoding']) ? (int) $attachment['encoding'] : 0;
+        $decoded = V24_SMH_Message_Parser::decode_transfer((string) $raw, $encoding);
+        $this->disconnect();
+
+        return [
+            'filename' => $attachment['filename'],
+            'mime_type' => $attachment['mime_type'],
+            'content' => $decoded,
+            'size_bytes' => strlen($decoded),
+        ];
+    }
+
+    public function set_seen(array $account, string $folder, int $uid, bool $seen)
+    {
+        $connected = $this->connect($account, $folder, false);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $result = $seen
+            ? @imap_setflag_full($this->stream, (string) $uid, '\\Seen', ST_UID)
+            : @imap_clearflag_full($this->stream, (string) $uid, '\\Seen', ST_UID);
+
+        $this->disconnect();
+
+        if (!$result) {
+            return new WP_Error('imap_failed', imap_last_error() ?: 'Aggiornamento stato messaggio non riuscito.', ['status' => 502]);
+        }
+
+        return true;
+    }
+
+    public function set_flagged(array $account, string $folder, int $uid, bool $flagged)
+    {
+        $connected = $this->connect($account, $folder, false);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $result = $flagged
+            ? @imap_setflag_full($this->stream, (string) $uid, '\\Flagged', ST_UID)
+            : @imap_clearflag_full($this->stream, (string) $uid, '\\Flagged', ST_UID);
+
+        $this->disconnect();
+
+        if (!$result) {
+            return new WP_Error('imap_failed', imap_last_error() ?: 'Aggiornamento flag messaggio non riuscito.', ['status' => 502]);
+        }
+
+        return true;
+    }
+
+    public function move_message(array $account, string $source_folder, int $uid, string $target_folder)
+    {
+        $connected = $this->connect($account, $source_folder, false);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $result = @imap_mail_move($this->stream, (string) $uid, $target_folder, CP_UID);
+        if ($result) {
+            @imap_expunge($this->stream);
+        }
+
+        $this->disconnect();
+
+        if (!$result) {
+            return new WP_Error('imap_failed', imap_last_error() ?: 'Spostamento messaggio non riuscito.', ['status' => 502]);
+        }
+
+        return true;
+    }
+
+    public function delete_message(array $account, string $folder, int $uid)
+    {
+        $connected = $this->connect($account, $folder, false);
+        if (is_wp_error($connected)) {
+            return $connected;
+        }
+
+        $result = @imap_delete($this->stream, (string) $uid, FT_UID);
+        if ($result) {
+            @imap_expunge($this->stream);
+        }
+
+        $this->disconnect();
+
+        if (!$result) {
+            return new WP_Error('imap_failed', imap_last_error() ?: 'Eliminazione messaggio non riuscita.', ['status' => 502]);
+        }
+
+        return true;
+    }
+
+    private function fetch_section_text(int $uid, array $section): string
+    {
+        $raw = @imap_fetchbody($this->stream, (string) $uid, $section['section'], FT_UID | FT_PEEK);
+        if ($raw === false || $raw === '') {
+            return '';
+        }
+
+        $decoded = V24_SMH_Message_Parser::decode_transfer((string) $raw, (int) $section['encoding']);
+        return V24_SMH_Message_Parser::to_utf8($decoded, $section['charset'] ?? 'UTF-8');
+    }
+
+    private function analyze_structure($structure, string $section = ''): array
+    {
+        $meta = [
+            'plain_sections' => [],
+            'html_sections' => [],
+            'attachments' => [],
+            'charset' => 'UTF-8',
+        ];
+
+        if (!$structure) {
+            return $meta;
+        }
+
+        $type = isset($structure->type) ? (int) $structure->type : 0;
+        $subtype = strtolower((string) ($structure->subtype ?? 'plain'));
+        $params = $this->extract_parameters($structure);
+
+        if (!empty($params['charset'])) {
+            $meta['charset'] = $params['charset'];
+        }
+
+        if (!empty($structure->parts) && is_array($structure->parts)) {
+            foreach ($structure->parts as $index => $part) {
+                $child_section = $section === '' ? (string) ($index + 1) : $section . '.' . ($index + 1);
+                $child_meta = $this->analyze_structure($part, $child_section);
+                $meta['plain_sections'] = array_merge($meta['plain_sections'], $child_meta['plain_sections']);
+                $meta['html_sections'] = array_merge($meta['html_sections'], $child_meta['html_sections']);
+                $meta['attachments'] = array_merge($meta['attachments'], $child_meta['attachments']);
+                if ($meta['charset'] === 'UTF-8' && !empty($child_meta['charset'])) {
+                    $meta['charset'] = $child_meta['charset'];
+                }
+            }
+
+            return $meta;
+        }
+
+        $section_id = $section === '' ? '1' : $section;
+        $disposition = strtolower((string) ($structure->disposition ?? ''));
+        $filename = $params['filename'] ?? ($params['name'] ?? '');
+        $is_inline = $disposition === 'inline';
+        $has_attachment_name = $filename !== '';
+        $is_attachment = $has_attachment_name || $disposition === 'attachment' || (!empty($structure->ifid) && !empty($structure->id));
+
+        if ($type === 0 && !$is_attachment) {
+            if ($subtype === 'plain') {
+                $meta['plain_sections'][] = [
+                    'section' => $section_id,
+                    'encoding' => (int) ($structure->encoding ?? 0),
+                    'charset' => $params['charset'] ?? 'UTF-8',
+                ];
+            }
+
+            if ($subtype === 'html') {
+                $meta['html_sections'][] = [
+                    'section' => $section_id,
+                    'encoding' => (int) ($structure->encoding ?? 0),
+                    'charset' => $params['charset'] ?? 'UTF-8',
+                ];
+            }
+        }
+
+        if ($is_attachment) {
+            $meta['attachments'][] = [
+                'part_id' => $section_id,
+                'filename' => $filename !== '' ? $this->decode_header($filename) : 'attachment-' . $section_id,
+                'mime_type' => $this->mime_type($structure),
+                'size_bytes' => (int) ($structure->bytes ?? 0),
+                'is_inline' => $is_inline ? 1 : 0,
+                'content_id' => $this->clean_content_id((string) ($structure->id ?? '')),
+                'encoding' => (int) ($structure->encoding ?? 0),
+            ];
+        }
+
+        return $meta;
+    }
+
+    private function extract_recipients($parsed_headers): array
+    {
+        if (!$parsed_headers) {
+            return [];
+        }
+
+        $types = [
+            'from' => $parsed_headers->from ?? [],
+            'reply_to' => $parsed_headers->reply_to ?? [],
+            'to' => $parsed_headers->to ?? [],
+            'cc' => $parsed_headers->cc ?? [],
+            'bcc' => $parsed_headers->bcc ?? [],
+        ];
+
+        $recipients = [];
+        foreach ($types as $type => $addresses) {
+            foreach ((array) $addresses as $address) {
+                $email = $this->address_email($address);
+                if ($email === '') {
+                    continue;
+                }
+
+                $recipients[] = [
+                    'type' => $type,
+                    'email' => sanitize_email($email),
+                    'name' => sanitize_text_field($this->decode_header((string) ($address->personal ?? ''))),
+                ];
+            }
+        }
+
+        return $recipients;
+    }
+
+    private function first_address($addresses): array
+    {
+        foreach ((array) $addresses as $address) {
+            $email = $this->address_email($address);
+            if ($email !== '') {
+                return [
+                    'email' => $email,
+                    'name' => $this->decode_header((string) ($address->personal ?? '')),
+                ];
+            }
+        }
+
+        return ['email' => '', 'name' => ''];
+    }
+
+    private function address_email($address): string
+    {
+        if (!is_object($address)) {
+            return '';
+        }
+
+        $mailbox = isset($address->mailbox) ? (string) $address->mailbox : '';
+        $host = isset($address->host) ? (string) $address->host : '';
+
+        if ($mailbox === '' || $host === '') {
+            return '';
+        }
+
+        return $mailbox . '@' . $host;
+    }
+
+    private function extract_parameters($part): array
+    {
+        $parameters = [];
+
+        foreach (['parameters', 'dparameters'] as $property) {
+            if (empty($part->{$property}) || !is_array($part->{$property})) {
+                continue;
+            }
+
+            foreach ($part->{$property} as $parameter) {
+                if (!isset($parameter->attribute, $parameter->value)) {
+                    continue;
+                }
+
+                $parameters[strtolower((string) $parameter->attribute)] = (string) $parameter->value;
+            }
+        }
+
+        return $parameters;
+    }
+
+    private function decode_header(string $value): string
+    {
+        if ($value === '' || !function_exists('imap_mime_header_decode')) {
+            return $value;
+        }
+
+        $parts = imap_mime_header_decode($value);
+        $decoded = '';
+        foreach ($parts as $part) {
+            $decoded .= V24_SMH_Message_Parser::to_utf8((string) $part->text, (string) $part->charset);
+        }
+
+        return $decoded;
+    }
+
+    private function mailbox(array $account, string $folder): string
+    {
+        $flag = '/imap';
+        $encryption = strtolower((string) ($account['imap_encryption'] ?? 'ssl_tls'));
+
+        if ($encryption === 'ssl_tls' || $encryption === 'ssl') {
+            $flag .= '/ssl';
+        } elseif ($encryption === 'tls' || $encryption === 'starttls') {
+            $flag .= '/tls';
+        } else {
+            $flag .= '/notls';
+        }
+
+        return sprintf('{%s:%d%s}%s', $account['imap_host'], (int) $account['imap_port'], $flag, $folder);
+    }
+
+    private function mime_type($part): string
+    {
+        $types = [
+            0 => 'text',
+            1 => 'multipart',
+            2 => 'message',
+            3 => 'application',
+            4 => 'audio',
+            5 => 'image',
+            6 => 'video',
+            7 => 'other',
+        ];
+
+        $type = $types[(int) ($part->type ?? 7)] ?? 'application';
+        $subtype = strtolower((string) ($part->subtype ?? 'octet-stream'));
+        return $type . '/' . $subtype;
+    }
+
+    private function find_attachment_by_part(array $attachments, string $part_id): ?array
+    {
+        foreach ($attachments as $attachment) {
+            if ((string) ($attachment['part_id'] ?? '') === (string) $part_id) {
+                return $attachment;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalize_date(string $value): string
+    {
+        $timestamp = strtotime($value);
+        return $timestamp ? gmdate('Y-m-d H:i:s', $timestamp) : current_time('mysql');
+    }
+
+    private function detect_special_use(string $folder): ?string
+    {
+        $normalized = strtolower($folder);
+
+        if ($normalized === 'inbox') {
+            return 'inbox';
+        }
+        if (strpos($normalized, 'sent') !== false) {
+            return 'sent';
+        }
+        if (strpos($normalized, 'draft') !== false) {
+            return 'drafts';
+        }
+        if (strpos($normalized, 'trash') !== false || strpos($normalized, 'cestin') !== false) {
+            return 'trash';
+        }
+        if (strpos($normalized, 'junk') !== false || strpos($normalized, 'spam') !== false) {
+            return 'junk';
+        }
+        if (strpos($normalized, 'archiv') !== false) {
+            return 'archive';
+        }
+
+        return null;
+    }
+
+    private function clean_message_id(string $value): string
+    {
+        $value = $this->normalize_reference_header($value);
+        if (preg_match('/<([^>]+)>/', $value, $matches)) {
+            return trim((string) ($matches[1] ?? ''));
+        }
+
+        return trim($value, "<> \t\r\n");
+    }
+
+    private function clean_content_id(string $value): string
+    {
+        return trim($value, "<> \t\r\n");
+    }
+
+    private function clean_header_value(string $value): string
+    {
+        $value = $this->normalize_reference_header($value);
+        return trim(preg_replace('/\s+/', ' ', $value) ?: '');
+    }
+
+    private function extract_header_line(string $raw_headers, string $name): string
+    {
+        if ($raw_headers === '') {
+            return '';
+        }
+
+        $unfolded = preg_replace("/\r\n[ \t]+/", ' ', $raw_headers) ?: $raw_headers;
+        if (!preg_match('/^' . preg_quote($name, '/') . ':\s*(.+)$/im', $unfolded, $matches)) {
+            return '';
+        }
+
+        return trim((string) ($matches[1] ?? ''));
+    }
+
+    private function normalize_reference_header(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (function_exists('iconv_mime_decode')) {
+            $decoded = @iconv_mime_decode($value, 0, 'UTF-8');
+            if (is_string($decoded) && $decoded !== '') {
+                $value = $decoded;
+            }
+        }
+
+        if (preg_match_all('/=\?[^?]+\?Q\?([^?]*)\?=/i', $value, $matches) && !empty($matches[1])) {
+            $decoded = '';
+            foreach ($matches[1] as $part) {
+                $decoded .= quoted_printable_decode(str_replace('_', ' ', (string) $part));
+            }
+            if ($decoded !== '') {
+                $value = $decoded;
+            }
+        }
+
+        return trim($value);
+    }
+}

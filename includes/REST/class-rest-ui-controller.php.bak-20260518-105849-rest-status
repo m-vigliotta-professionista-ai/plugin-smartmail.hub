@@ -1,0 +1,42 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_UI_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/ui/theme', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'show_theme'],
+            'permission_callback' => static function () {
+                return current_user_can('read');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/ui/theme', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'save_theme'],
+            'permission_callback' => static function () {
+                return current_user_can('read');
+            },
+        ]);
+    }
+
+    public function show_theme()
+    {
+        $service = new V24_SMH_Theme_Service();
+
+        return V24_SMH_REST_Bootstrap::success([
+            'theme' => $service->current_theme_for_user(),
+            'storage_key' => $service->storage_key_for_user(),
+        ]);
+    }
+
+    public function save_theme(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Theme_Service())->save_theme($request->get_json_params() ?: []);
+        return V24_SMH_REST_Bootstrap::success($result);
+    }
+}

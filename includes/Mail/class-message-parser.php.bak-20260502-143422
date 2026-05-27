@@ -1,0 +1,129 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Message_Parser
+{
+    public static function normalize_body(string $plain, string $html, string $charset = 'UTF-8'): array
+    {
+        $plain_utf8 = self::to_utf8($plain, $charset);
+        $html_utf8 = self::to_utf8($html, $charset);
+
+        $plain_utf8 = self::sanitize_text_content($plain_utf8);
+        $html_utf8 = self::sanitize_html_content($html_utf8);
+
+        return [
+            'body_plain' => $plain_utf8,
+            'body_html_raw' => $html_utf8,
+            'body_html_sanitized' => $html_utf8 !== '' ? wp_kses_post($html_utf8) : nl2br(esc_html($plain_utf8)),
+            'body_hash' => hash('sha256', $plain_utf8 . $html_utf8),
+            'charset' => 'UTF-8',
+            'preview_text' => self::build_preview($plain_utf8, $html_utf8),
+            'search_text' => self::build_search_text($plain_utf8, $html_utf8),
+        ];
+    }
+
+    public static function decode_transfer(string $value, int $encoding): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        switch ($encoding) {
+            case 3:
+                $decoded = base64_decode($value, true);
+                return $decoded === false ? $value : $decoded;
+            case 4:
+                return quoted_printable_decode($value);
+            default:
+                return $value;
+        }
+    }
+
+    public static function to_utf8(string $value, ?string $charset = 'UTF-8'): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        $charset = self::normalize_charset($charset);
+        if ($charset === '' || $charset === 'UTF-8' || $charset === 'US-ASCII') {
+            return self::strip_invalid_bytes($value);
+        }
+
+        if (function_exists('mb_convert_encoding')) {
+            try {
+                $converted = @mb_convert_encoding($value, 'UTF-8', $charset);
+                if ($converted !== false) {
+                    return self::strip_invalid_bytes($converted);
+                }
+            } catch (ValueError $exception) {
+                // Fallback to iconv/raw bytes below when IMAP reports unsupported charsets.
+            }
+        }
+
+        if (function_exists('iconv')) {
+            $converted = @iconv($charset, 'UTF-8//IGNORE', $value);
+            if ($converted !== false) {
+                return self::strip_invalid_bytes($converted);
+            }
+        }
+
+        return self::strip_invalid_bytes($value);
+    }
+
+    public static function build_preview(string $plain, string $html, int $limit = 180): string
+    {
+        $source = trim($plain);
+        if ($source === '' && $html !== '') {
+            $source = trim(wp_strip_all_tags($html));
+        }
+
+        $source = preg_replace('/\s+/u', ' ', $source ?: '');
+        if ($source === null) {
+            $source = '';
+        }
+
+        if (function_exists('mb_strimwidth')) {
+            return trim(mb_strimwidth($source, 0, $limit, '...'));
+        }
+
+        return strlen($source) > $limit ? substr($source, 0, $limit - 3) . '...' : $source;
+    }
+
+    public static function build_search_text(string $plain, string $html): string
+    {
+        $text = trim($plain . ' ' . wp_strip_all_tags($html));
+        $text = preg_replace('/\s+/u', ' ', $text ?: '');
+        return $text === null ? '' : $text;
+    }
+
+    private static function sanitize_text_content(string $value): string
+    {
+        $value = str_replace("\0", '', $value);
+        $value = preg_replace("/\r\n?/", "\n", $value);
+        return $value === null ? '' : trim($value);
+    }
+
+    private static function sanitize_html_content(string $value): string
+    {
+        return trim(str_replace("\0", '', $value));
+    }
+
+    private static function strip_invalid_bytes(string $value): string
+    {
+        $clean = @preg_replace('//u', '', $value);
+        return is_string($clean) ? $clean : $value;
+    }
+
+    private static function normalize_charset(?string $charset): string
+    {
+        $charset = strtoupper(trim((string) $charset));
+        if ($charset === '' || $charset === 'DEFAULT' || $charset === 'UNKNOWN-8BIT') {
+            return 'UTF-8';
+        }
+
+        return $charset;
+    }
+}

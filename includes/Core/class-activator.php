@@ -1,0 +1,584 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Activator
+{
+    public static function activate(): void
+    {
+        self::check_requirements();
+        self::create_tables();
+        require_once V24_SMH_PLUGIN_DIR . 'includes/Security/class-capabilities.php';
+        V24_SMH_Capabilities::add();
+        self::create_options();
+        self::schedule_cron();
+    }
+
+    private static function check_requirements(): void
+    {
+        if (version_compare(PHP_VERSION, '7.4', '<')) {
+            deactivate_plugins(plugin_basename(V24_SMH_PLUGIN_FILE));
+            wp_die('Valore 24 AI Office - SmartMail Hub richiede PHP 7.4 o superiore.');
+        }
+    }
+
+    private static function table(string $name): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . V24_SMH_TABLE_PREFIX . $name;
+    }
+
+    public static function create_tables(): void
+    {
+        global $wpdb;
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        $charset = $wpdb->get_charset_collate();
+
+        $sql = [];
+        $sql[] = "CREATE TABLE " . self::table('accounts') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            owner_type varchar(20) NOT NULL DEFAULT 'user',
+            owner_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            label varchar(190) NOT NULL,
+            email_address varchar(190) NOT NULL,
+            display_name varchar(190) DEFAULT NULL,
+            provider_type varchar(50) NOT NULL DEFAULT 'imap_smtp',
+            imap_host varchar(190) NOT NULL,
+            imap_port int unsigned NOT NULL DEFAULT 993,
+            imap_encryption varchar(20) NOT NULL DEFAULT 'ssl_tls',
+            imap_auth_mode varchar(30) NOT NULL DEFAULT 'password',
+            smtp_host varchar(190) NOT NULL,
+            smtp_port int unsigned NOT NULL DEFAULT 465,
+            smtp_encryption varchar(20) NOT NULL DEFAULT 'ssl_tls',
+            smtp_auth_mode varchar(30) NOT NULL DEFAULT 'password',
+            encrypted_username longtext NULL,
+            encrypted_secret longtext NULL,
+            status varchar(30) NOT NULL DEFAULT 'pending',
+            last_error text NULL,
+            last_connected_at datetime NULL,
+            created_by bigint(20) unsigned NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY owner_lookup (owner_type, owner_id),
+            KEY email_address (email_address),
+            KEY provider_status (provider_type, status)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('account_tokens') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            provider varchar(50) NOT NULL,
+            token_type varchar(30) NOT NULL DEFAULT 'bearer',
+            encrypted_access_token longtext NULL,
+            encrypted_refresh_token longtext NULL,
+            scopes text NULL,
+            expires_at datetime NULL,
+            last_refresh_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY account_provider (account_id, provider),
+            KEY expires_at (expires_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('folders') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            remote_id varchar(255) NOT NULL,
+            name varchar(190) NOT NULL,
+            full_name varchar(255) NOT NULL,
+            delimiter varchar(10) NULL,
+            special_use varchar(50) NULL,
+            uidvalidity varchar(100) NULL,
+            uidnext bigint(20) unsigned NULL,
+            highest_uid bigint(20) unsigned NOT NULL DEFAULT 0,
+            message_count int unsigned NOT NULL DEFAULT 0,
+            unseen_count int unsigned NOT NULL DEFAULT 0,
+            sync_cursor longtext NULL,
+            last_synced_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY account_remote (account_id, remote_id(191)),
+            KEY account_special (account_id, special_use),
+            KEY last_synced_at (last_synced_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('messages') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            folder_id bigint(20) unsigned NOT NULL,
+            uid bigint(20) unsigned NULL,
+            remote_id varchar(255) NULL,
+            message_id varchar(255) NULL,
+            thread_id bigint(20) unsigned NULL,
+            in_reply_to varchar(255) NULL,
+            references_header text NULL,
+            subject text NULL,
+            from_email varchar(190) NULL,
+            from_name varchar(190) NULL,
+            reply_to_email varchar(190) NULL,
+            date_sent datetime NULL,
+            date_received datetime NULL,
+            size_bytes bigint(20) unsigned NOT NULL DEFAULT 0,
+            flags_json longtext NULL,
+            is_seen tinyint(1) NOT NULL DEFAULT 0,
+            is_answered tinyint(1) NOT NULL DEFAULT 0,
+            is_flagged tinyint(1) NOT NULL DEFAULT 0,
+            is_deleted tinyint(1) NOT NULL DEFAULT 0,
+            has_attachments tinyint(1) NOT NULL DEFAULT 0,
+            importance varchar(20) NOT NULL DEFAULT 'normal',
+            body_fetched tinyint(1) NOT NULL DEFAULT 0,
+            preview_text text NULL,
+            search_text longtext NULL,
+            raw_headers longtext NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY account_folder_uid (account_id, folder_id, uid),
+            KEY account_date (account_id, date_received),
+            KEY folder_seen (folder_id, is_seen),
+            KEY message_id (message_id(191)),
+            KEY thread_id (thread_id)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('message_bodies') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            message_id bigint(20) unsigned NOT NULL,
+            body_plain longtext NULL,
+            body_html_raw longtext NULL,
+            body_html_sanitized longtext NULL,
+            body_hash varchar(64) NULL,
+            charset varchar(50) NULL,
+            fetched_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY message_id (message_id),
+            KEY body_hash (body_hash)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('attachments') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            message_id bigint(20) unsigned NOT NULL,
+            account_id bigint(20) unsigned NOT NULL,
+            part_id varchar(100) NULL,
+            filename varchar(255) NULL,
+            stored_filename varchar(255) NULL,
+            mime_type varchar(190) NULL,
+            size_bytes bigint(20) unsigned NOT NULL DEFAULT 0,
+            storage_driver varchar(30) NOT NULL DEFAULT 'none',
+            storage_path text NULL,
+            content_id varchar(255) NULL,
+            is_inline tinyint(1) NOT NULL DEFAULT 0,
+            downloaded tinyint(1) NOT NULL DEFAULT 0,
+            checksum varchar(64) NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY message_id (message_id),
+            KEY account_id (account_id),
+            KEY content_id (content_id(191))
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('recipients') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            message_id bigint(20) unsigned NOT NULL,
+            type varchar(10) NOT NULL,
+            email varchar(190) NOT NULL,
+            name varchar(190) NULL,
+            contact_id bigint(20) unsigned NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY message_type (message_id, type),
+            KEY email (email),
+            KEY contact_id (contact_id)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('threads') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            subject_normalized varchar(255) NULL,
+            root_message_id varchar(255) NULL,
+            last_message_at datetime NULL,
+            message_count int unsigned NOT NULL DEFAULT 0,
+            unread_count int unsigned NOT NULL DEFAULT 0,
+            participants_json longtext NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY account_last (account_id, last_message_at),
+            KEY root_message_id (root_message_id(191))
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('contacts') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            owner_type varchar(20) NOT NULL DEFAULT 'user',
+            owner_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            account_id bigint(20) unsigned NULL,
+            remote_id varchar(255) NULL,
+            source varchar(30) NOT NULL DEFAULT 'local',
+            first_name varchar(190) NULL,
+            last_name varchar(190) NULL,
+            display_name varchar(190) NOT NULL,
+            company varchar(190) NULL,
+            department varchar(190) NULL,
+            job_title varchar(190) NULL,
+            primary_email varchar(190) NULL,
+            website_url varchar(255) NULL,
+            mobile_phone varchar(80) NULL,
+            business_phone varchar(80) NULL,
+            emails_json longtext NULL,
+            phones_json longtext NULL,
+            addresses_json longtext NULL,
+            categories_json longtext NULL,
+            notes text NULL,
+            avatar_url text NULL,
+            etag varchar(255) NULL,
+            deleted_at datetime NULL,
+            last_synced_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY owner_lookup (owner_type, owner_id),
+            KEY account_remote (account_id, remote_id(191)),
+            KEY primary_email (primary_email),
+            KEY display_name (display_name)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('contact_meta') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            contact_id bigint(20) unsigned NOT NULL,
+            meta_key varchar(190) NOT NULL,
+            meta_value longtext NULL,
+            PRIMARY KEY  (id),
+            KEY contact_id (contact_id),
+            KEY meta_key (meta_key)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('calendars') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            owner_user_id bigint(20) unsigned NOT NULL,
+            name varchar(190) NOT NULL,
+            slug varchar(190) NOT NULL,
+            color varchar(20) NULL,
+            description text NULL,
+            is_default tinyint(1) NOT NULL DEFAULT 0,
+            deleted_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY owner_slug (owner_user_id, slug),
+            KEY owner_default (owner_user_id, is_default),
+            KEY deleted_at (deleted_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('calendar_shares') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            calendar_id bigint(20) unsigned NOT NULL,
+            user_id bigint(20) unsigned NOT NULL,
+            permission_level varchar(20) NOT NULL DEFAULT 'read',
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY calendar_user (calendar_id, user_id),
+            KEY user_permission (user_id, permission_level)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('calendar_events') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            owner_type varchar(20) NOT NULL DEFAULT 'user',
+            owner_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            account_id bigint(20) unsigned NULL,
+            calendar_id bigint(20) unsigned NULL,
+            parent_event_id bigint(20) unsigned NULL,
+            title varchar(255) NOT NULL,
+            description longtext NULL,
+            location varchar(255) NULL,
+            start_at datetime NOT NULL,
+            end_at datetime NOT NULL,
+            timezone varchar(100) NULL,
+            is_all_day tinyint(1) NOT NULL DEFAULT 0,
+            status varchar(30) NOT NULL DEFAULT 'confirmed',
+            busy_status varchar(30) NOT NULL DEFAULT 'busy',
+            reminder_minutes int unsigned NULL,
+            categories_json longtext NULL,
+            recurrence_json longtext NULL,
+            recurrence_exceptions_json longtext NULL,
+            recurrence_instance_start datetime NULL,
+            deleted_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY owner_range (owner_type, owner_id, start_at, end_at),
+            KEY calendar_range (calendar_id, start_at, end_at),
+            KEY recurrence_parent (parent_event_id, recurrence_instance_start),
+            KEY start_at (start_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('event_attendees') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            event_id bigint(20) unsigned NOT NULL,
+            contact_id bigint(20) unsigned NULL,
+            email varchar(190) NOT NULL,
+            name varchar(190) NULL,
+            role varchar(30) NOT NULL DEFAULT 'required',
+            response_status varchar(30) NOT NULL DEFAULT 'needs_action',
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY event_id (event_id),
+            KEY email (email),
+            KEY contact_id (contact_id)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('tasks') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            owner_user_id bigint(20) unsigned NOT NULL,
+            created_by bigint(20) unsigned NOT NULL,
+            assigned_user_id bigint(20) unsigned NULL,
+            title varchar(255) NOT NULL,
+            description longtext NULL,
+            status varchar(30) NOT NULL DEFAULT 'not_started',
+            priority varchar(20) NOT NULL DEFAULT 'normal',
+            start_at datetime NULL,
+            due_at datetime NULL,
+            reminder_at datetime NULL,
+            completed_at datetime NULL,
+            percent_complete int unsigned NOT NULL DEFAULT 0,
+            related_message_id bigint(20) unsigned NULL,
+            related_contact_id bigint(20) unsigned NULL,
+            related_event_id bigint(20) unsigned NULL,
+            categories_json longtext NULL,
+            deleted_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY owner_status (owner_user_id, status),
+            KEY assigned_due (assigned_user_id, due_at),
+            KEY deleted_at (deleted_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('mail_rules') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            owner_user_id bigint(20) unsigned NOT NULL,
+            name varchar(190) NOT NULL,
+            is_active tinyint(1) NOT NULL DEFAULT 1,
+            sort_order int unsigned NOT NULL DEFAULT 0,
+            match_mode varchar(10) NOT NULL DEFAULT 'all',
+            stop_processing tinyint(1) NOT NULL DEFAULT 0,
+            conditions_json longtext NULL,
+            actions_json longtext NULL,
+            times_applied int unsigned NOT NULL DEFAULT 0,
+            last_run_at datetime NULL,
+            last_matched_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY account_active (account_id, is_active, sort_order),
+            KEY owner_user (owner_user_id, account_id)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('sync_jobs') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            job_type varchar(50) NOT NULL,
+            account_id bigint(20) unsigned NULL,
+            folder_id bigint(20) unsigned NULL,
+            payload_json longtext NULL,
+            status varchar(30) NOT NULL DEFAULT 'pending',
+            attempts int unsigned NOT NULL DEFAULT 0,
+            max_attempts int unsigned NOT NULL DEFAULT 3,
+            locked_at datetime NULL,
+            locked_by varchar(100) NULL,
+            scheduled_at datetime NOT NULL,
+            started_at datetime NULL,
+            finished_at datetime NULL,
+            last_error text NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY status_schedule (status, scheduled_at),
+            KEY account_status (account_id, status),
+            KEY locked_at (locked_at)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('sync_log') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NULL,
+            folder_id bigint(20) unsigned NULL,
+            job_id bigint(20) unsigned NULL,
+            sync_type varchar(50) NOT NULL,
+            status varchar(30) NOT NULL,
+            items_seen int unsigned NOT NULL DEFAULT 0,
+            items_created int unsigned NOT NULL DEFAULT 0,
+            items_updated int unsigned NOT NULL DEFAULT 0,
+            items_deleted int unsigned NOT NULL DEFAULT 0,
+            duration_ms int unsigned NULL,
+            error_message text NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY account_created (account_id, created_at),
+            KEY status_created (status, created_at),
+            KEY job_id (job_id)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('audit_log') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) unsigned NULL,
+            account_id bigint(20) unsigned NULL,
+            event_type varchar(80) NOT NULL,
+            entity_type varchar(50) NULL,
+            entity_id bigint(20) unsigned NULL,
+            ip_address varchar(45) NULL,
+            user_agent text NULL,
+            details_json longtext NULL,
+            created_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY user_created (user_id, created_at),
+            KEY account_created (account_id, created_at),
+            KEY event_type (event_type)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('settings') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            scope varchar(30) NOT NULL DEFAULT 'global',
+            scope_id bigint(20) unsigned NULL,
+            setting_key varchar(190) NOT NULL,
+            setting_value longtext NULL,
+            autoload tinyint(1) NOT NULL DEFAULT 0,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY setting_scope (scope, scope_id, setting_key),
+            KEY autoload (autoload)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('ai_suggestions') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            message_id bigint(20) unsigned NOT NULL,
+            account_id bigint(20) unsigned NOT NULL,
+            user_id bigint(20) unsigned NULL,
+            suggestion_type varchar(50) NOT NULL DEFAULT 'reply',
+            ai_status varchar(50) NOT NULL DEFAULT 'not_analyzed',
+            detected_intent varchar(100) NULL,
+            detected_priority varchar(30) NULL,
+            generated_subject text NULL,
+            generated_body longtext NULL,
+            confidence_score decimal(5,4) NULL,
+            requires_human_review tinyint(1) NOT NULL DEFAULT 1,
+            approved_by bigint(20) unsigned NULL,
+            approved_at datetime NULL,
+            sent_at datetime NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY message_id (message_id),
+            KEY account_status (account_id, ai_status),
+            KEY review_required (requires_human_review, ai_status),
+            KEY approved_by (approved_by)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('ai_review_queue') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            suggestion_id bigint(20) unsigned NOT NULL,
+            message_id bigint(20) unsigned NOT NULL,
+            assigned_to bigint(20) unsigned NULL,
+            priority varchar(30) NOT NULL DEFAULT 'normal',
+            review_status varchar(50) NOT NULL DEFAULT 'pending',
+            human_notes longtext NULL,
+            approved_response longtext NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY suggestion_id (suggestion_id),
+            KEY message_id (message_id),
+            KEY assigned_status (assigned_to, review_status),
+            KEY priority_status (priority, review_status)
+        ) $charset;";
+
+        $sql[] = "CREATE TABLE " . self::table('ai_responses') . " (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            account_id bigint(20) unsigned NOT NULL,
+            message_id bigint(20) unsigned NULL,
+            user_id bigint(20) unsigned NOT NULL,
+            source_response_id bigint(20) unsigned NULL,
+            compose_mode varchar(30) NOT NULL DEFAULT 'new',
+            response_mode varchar(30) NOT NULL DEFAULT 'generate',
+            tenant_key varchar(100) NOT NULL DEFAULT 'default',
+            remote_chat_id varchar(190) NULL,
+            remote_generation_id varchar(190) NULL,
+            prompt_text longtext NULL,
+            original_subject text NULL,
+            original_body_text longtext NULL,
+            generated_subject text NULL,
+            generated_html longtext NULL,
+            generated_text longtext NULL,
+            hidden_html longtext NULL,
+            assistant_id varchar(190) NULL,
+            assistant_name varchar(190) NULL,
+            privacy_mode tinyint(1) NOT NULL DEFAULT 0,
+            is_concise tinyint(1) NOT NULL DEFAULT 0,
+            is_ignored tinyint(1) NOT NULL DEFAULT 0,
+            audio_url text NULL,
+            rating_value tinyint(1) NULL,
+            rating_comment text NULL,
+            preferences_json longtext NULL,
+            metrics_json longtext NULL,
+            raw_response_json longtext NULL,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY account_user_created (account_id, user_id, created_at),
+            KEY message_id (message_id),
+            KEY source_response_id (source_response_id),
+            KEY remote_chat_id (remote_chat_id),
+            KEY remote_generation_id (remote_generation_id),
+            KEY ignored_rating (is_ignored, rating_value)
+        ) $charset;";
+
+        foreach ($sql as $statement) {
+            dbDelta($statement);
+        }
+
+        update_option('v24_smh_db_version', V24_SMH_VERSION, false);
+    }
+
+    private static function create_options(): void
+    {
+        require_once V24_SMH_PLUGIN_DIR . 'includes/AI/class-ai-tenant-resolver.php';
+
+        add_option('v24_smh_settings', [
+            'sync_interval_minutes' => 15,
+            'max_messages_per_sync' => 50,
+            'max_attachment_size_mb' => 15,
+            'cache_retention_days' => 90,
+            'log_retention_days' => 180,
+            'outbound_transport' => 'auto',
+            'allow_remote_images' => false,
+            'enable_contacts' => true,
+            'enable_calendar' => true,
+            'enable_tasks' => true,
+            'enable_rules' => true,
+            'enable_ai_ready_layer' => true,
+            'ai_enabled' => true,
+            'ai_proxy_token' => '',
+            'ai_endpoint_default' => 'https://secureserverai.professionista-ai.com/wp-json/proff_ai/v1/',
+            'ai_endpoint_tenant' => 'https://securserveraioffice.valore24.ilsole24ore.com/wp-json/proff_ai/v1/',
+            'ai_allowed_tenants' => implode(',', V24_SMH_AI_Tenant_Resolver::default_allowed_tenants()),
+            'ai_display_name' => 'Secure E-mail AI',
+            'ai_branding_profiles' => V24_SMH_AI_Tenant_Resolver::default_profiles_json(),
+        ], '', false);
+    }
+
+    private static function schedule_cron(): void
+    {
+        if (!wp_next_scheduled('v24_smh_cron_jobs')) {
+            $schedules = wp_get_schedules();
+            $recurrence = isset($schedules['five_minutes']) ? 'five_minutes' : 'hourly';
+            wp_schedule_event(time() + MINUTE_IN_SECONDS, $recurrence, 'v24_smh_cron_jobs');
+        }
+        if (!wp_next_scheduled('v24_smh_cron_cleanup')) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'v24_smh_cron_cleanup');
+        }
+    }
+}

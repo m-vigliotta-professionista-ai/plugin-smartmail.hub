@@ -1,0 +1,26 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Bootstrap
+{
+    public const NAMESPACE = 'v24-ai-office/v1/smartmail';
+
+    public static function register_routes(): void
+    {
+        (new V24_SMH_REST_Accounts_Controller())->register_routes();
+        (new V24_SMH_REST_Mail_Controller())->register_routes();
+        (new V24_SMH_REST_Contacts_Controller())->register_routes();
+        (new V24_SMH_REST_Calendar_Controller())->register_routes();
+        (new V24_SMH_REST_Tasks_Controller())->register_routes();
+        (new V24_SMH_REST_Rules_Controller())->register_routes();
+        (new V24_SMH_REST_AI_Controller())->register_routes();
+        (new V24_SMH_REST_UI_Controller())->register_routes();
+    }
+
+    public static function success($data = null, array $extra = []): WP_REST_Response
+    {
+        return rest_ensure_response(array_merge(['success' => true, 'data' => $data], $extra));
+    }
+}

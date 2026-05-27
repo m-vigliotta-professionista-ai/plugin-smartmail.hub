@@ -1,0 +1,104 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Rules_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/rules', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'index'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+                'args' => [
+                    'account_id' => V24_SMH_REST_Bootstrap::arg_id('ID account email.'),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/rules/run', [
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'run'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+                'args' => [
+                    'account_id' => V24_SMH_REST_Bootstrap::arg_id('ID account email.'),
+                    'rule_id' => V24_SMH_REST_Bootstrap::arg_optional_id('ID regola specifica.'),
+                ],
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/rules/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'show'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID regola.'),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID regola.'),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [$this, 'delete'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_rules'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID regola.'),
+                ],
+            ],
+        ]);
+    }
+
+    public function index(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->list((int) $request->get_param('account_id'));
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function create(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->create($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function show(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->find((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->update((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function delete(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->delete((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function run(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Mail_Rules_Service())->run(
+            (int) $request->get_param('account_id'),
+            $request->get_param('rule_id') ? (int) $request->get_param('rule_id') : null
+        );
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+}

@@ -1,0 +1,33 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Cron
+{
+    public static function register_hooks(): void
+    {
+        add_filter('cron_schedules', [self::class, 'schedules']);
+        add_action('v24_smh_cron_jobs', [self::class, 'run_jobs']);
+        add_action('v24_smh_cron_cleanup', [self::class, 'cleanup']);
+    }
+
+    public static function schedules(array $schedules): array
+    {
+        $schedules['five_minutes'] = [
+            'interval' => 300,
+            'display' => 'Every five minutes',
+        ];
+        return $schedules;
+    }
+
+    public static function run_jobs(): void
+    {
+        (new V24_SMH_Sync_Job_Runner())->run();
+    }
+
+    public static function cleanup(): void
+    {
+        // Retention policies will be expanded after MVP validation.
+    }
+}

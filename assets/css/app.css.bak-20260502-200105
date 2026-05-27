@@ -1,0 +1,2199 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap");
+
+html:has(.v24-smh-app),
+html:has(.v24-smh-auth-shell) {
+    margin-top: 0 !important;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+body:has(.v24-smh-app),
+body:has(.v24-smh-auth-shell) {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: #050d1c;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+body:has(.v24-smh-app) #wpadminbar,
+body:has(.v24-smh-auth-shell) #wpadminbar,
+body:has(.v24-smh-app) .wp-site-blocks > header.wp-block-template-part,
+body:has(.v24-smh-auth-shell) .wp-site-blocks > header.wp-block-template-part,
+body:has(.v24-smh-app) .wp-site-blocks > footer.wp-block-template-part,
+body:has(.v24-smh-auth-shell) .wp-site-blocks > footer.wp-block-template-part,
+body:has(.v24-smh-app) .wp-block-post-title,
+body:has(.v24-smh-auth-shell) .wp-block-post-title {
+    display: none !important;
+}
+
+body:has(.v24-smh-app) .wp-site-blocks,
+body:has(.v24-smh-auth-shell) .wp-site-blocks,
+body:has(.v24-smh-app) main.wp-block-group,
+body:has(.v24-smh-auth-shell) main.wp-block-group,
+body:has(.v24-smh-app) main.wp-block-group > .wp-block-group,
+body:has(.v24-smh-auth-shell) main.wp-block-group > .wp-block-group,
+body:has(.v24-smh-app) .entry-content.alignfull,
+body:has(.v24-smh-auth-shell) .entry-content.alignfull {
+    max-width: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+body:has(.v24-smh-app) main.wp-block-group,
+body:has(.v24-smh-auth-shell) main.wp-block-group {
+    margin-top: 0 !important;
+    min-height: 0;
+    height: 100%;
+}
+
+body:has(.v24-smh-app) .entry-content > .v24-smh-app,
+body:has(.v24-smh-auth-shell) .entry-content > .v24-smh-auth-shell {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+}
+
+.v24-smh-app,
+.v24-smh-auth-shell {
+    --v24-bg: #07101f;
+    --v24-bg-soft: #101b33;
+    --v24-panel: rgba(14, 24, 49, 0.92);
+    --v24-panel-strong: rgba(10, 18, 36, 0.96);
+    --v24-panel-soft: rgba(20, 34, 66, 0.76);
+    --v24-panel-muted: rgba(13, 22, 43, 0.62);
+    --v24-border: rgba(121, 148, 210, 0.22);
+    --v24-border-strong: rgba(130, 181, 255, 0.38);
+    --v24-text: #f2f6ff;
+    --v24-text-soft: #cad6f5;
+    --v24-muted: #8ea2cf;
+    --v24-accent: #3dd9ff;
+    --v24-accent-strong: #25c1ff;
+    --v24-accent-soft: rgba(61, 217, 255, 0.12);
+    --v24-magenta: #ff4fa7;
+    --v24-purple: #8c63ff;
+    --v24-green: #4fe39a;
+    --v24-green-soft: rgba(79, 227, 154, 0.14);
+    --v24-shadow: 0 28px 90px rgba(2, 8, 24, 0.45);
+    --v24-radius-xl: 28px;
+    --v24-radius-lg: 22px;
+    --v24-radius-md: 16px;
+    --v24-radius-sm: 12px;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+    color: var(--v24-text);
+    font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.v24-smh-app *,
+.v24-smh-auth-shell * {
+    box-sizing: border-box;
+}
+
+.v24-smh-app {
+    position: relative;
+    min-height: 0;
+    height: 100vh;
+    height: 100dvh;
+    padding: 14px clamp(12px, 1.5vw, 24px);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background:
+        radial-gradient(circle at 0% 0%, rgba(8, 60, 136, 0.34), transparent 24%),
+        radial-gradient(circle at 100% 12%, rgba(40, 116, 255, 0.18), transparent 18%),
+        radial-gradient(circle at 100% 100%, rgba(77, 24, 170, 0.28), transparent 26%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+        linear-gradient(135deg, #030914 0%, #061327 28%, #08172d 48%, #091a36 100%);
+    overflow: hidden;
+}
+
+.v24-smh-app::before,
+.v24-smh-auth-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(111, 144, 212, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(111, 144, 212, 0.06) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.88), transparent 95%);
+}
+
+.v24-smh-auth-shell {
+    position: relative;
+    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    padding: 40px clamp(18px, 3vw, 32px);
+    display: grid;
+    place-items: center;
+    background:
+        radial-gradient(circle at 10% 12%, rgba(30, 129, 255, 0.3), transparent 28%),
+        radial-gradient(circle at 100% 0%, rgba(139, 83, 255, 0.3), transparent 30%),
+        linear-gradient(135deg, #020914 0%, #09152c 42%, #08172f 100%);
+    overflow: hidden;
+}
+
+.v24-smh-auth-card {
+    position: relative;
+    z-index: 1;
+    width: min(560px, 100%);
+    padding: 34px;
+    border-radius: var(--v24-radius-xl);
+    border: 1px solid var(--v24-border);
+    background:
+        linear-gradient(180deg, rgba(16, 28, 58, 0.96), rgba(10, 18, 37, 0.98)),
+        linear-gradient(135deg, rgba(65, 217, 255, 0.06), rgba(255, 79, 167, 0.08));
+    box-shadow: var(--v24-shadow);
+    backdrop-filter: blur(20px);
+}
+
+.v24-smh-auth-brand {
+    display: grid;
+    gap: 12px;
+}
+
+.v24-smh-auth-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(61, 217, 255, 0.18);
+    background: rgba(61, 217, 255, 0.08);
+    color: var(--v24-accent);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.v24-smh-brand-block {
+    display: grid;
+    gap: 2px;
+}
+
+.v24-smh-visually-hidden {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.v24-smh-brand-mark {
+    font-family: "Sora", "Manrope", sans-serif;
+    font-size: clamp(28px, 3vw, 48px);
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    color: #edf4ff;
+}
+
+.v24-smh-brand-mark span {
+    color: #ffffff;
+}
+
+.v24-smh-brand-mark em {
+    margin-left: 4px;
+    font-style: normal;
+    color: #b86dff;
+}
+
+.v24-smh-brand-submark {
+    font-family: "Sora", "Manrope", sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.v24-smh-brand-rail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.v24-smh-brand-app-name {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    color: #ff4f5f;
+}
+
+.v24-smh-auth-brand h1,
+.v24-smh-reader-header h2,
+.v24-smh-compose-header h2,
+.v24-smh-card-header h3,
+.v24-smh-card-header h4 {
+    font-family: "Sora", "Manrope", sans-serif;
+    letter-spacing: -0.03em;
+}
+
+.v24-smh-auth-brand h1 {
+    margin: 4px 0 0;
+    font-size: 34px;
+    line-height: 1.08;
+}
+
+.v24-smh-auth-brand p,
+.v24-smh-auth-meta,
+.v24-smh-user,
+.v24-smh-status,
+.v24-smh-compose-toolbar-hint,
+.v24-smh-ai-note,
+.v24-smh-ai-rec-status,
+.v24-smh-ai-selection,
+.v24-smh-message small,
+.v24-smh-record small,
+.v24-smh-card p,
+.v24-smh-share-row span,
+.v24-smh-header span {
+    color: var(--v24-muted);
+}
+
+.v24-smh-auth-form,
+.v24-smh-admin-form {
+    display: grid;
+    gap: 14px;
+}
+
+.v24-smh-auth-form {
+    margin-top: 24px;
+}
+
+.v24-smh-auth-form label,
+.v24-smh-form-grid label,
+.v24-smh-sheet label,
+.v24-smh-admin-form label {
+    display: grid;
+    gap: 8px;
+}
+
+.v24-smh-auth-form span,
+.v24-smh-sheet label span,
+.v24-smh-admin-form label span {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--v24-text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.v24-smh-auth-form input[type="text"],
+.v24-smh-auth-form input[type="password"],
+.v24-smh-app input[type="search"],
+.v24-smh-app input[type="text"],
+.v24-smh-app input[type="email"],
+.v24-smh-app input[type="url"],
+.v24-smh-app input[type="date"],
+.v24-smh-app input[type="datetime-local"],
+.v24-smh-app input[type="number"],
+.v24-smh-app textarea,
+.v24-smh-app select,
+.v24-smh-admin-form input,
+.v24-smh-admin-form select,
+.v24-smh-admin-form textarea {
+    width: 100%;
+    border: 1px solid var(--v24-border);
+    border-radius: 16px;
+    padding: 14px 16px;
+    background: rgba(5, 11, 28, 0.72);
+    color: var(--v24-text);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.v24-smh-app textarea,
+.v24-smh-admin-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.v24-smh-app input::placeholder,
+.v24-smh-app textarea::placeholder,
+.v24-smh-auth-form input::placeholder {
+    color: rgba(173, 190, 229, 0.58);
+}
+
+.v24-smh-auth-form input:focus,
+.v24-smh-app input:focus,
+.v24-smh-app textarea:focus,
+.v24-smh-app select:focus,
+.v24-smh-admin-form input:focus,
+.v24-smh-admin-form select:focus,
+.v24-smh-admin-form textarea:focus {
+    outline: none;
+    border-color: rgba(87, 194, 255, 0.58);
+    box-shadow: 0 0 0 4px rgba(61, 217, 255, 0.1);
+}
+
+.v24-smh-auth-form button,
+.v24-smh-button,
+.v24-smh-button-primary,
+.v24-smh-module-tab,
+.v24-smh-reader-actions button,
+.v24-smh-toolbar button,
+.v24-smh-actions button,
+.v24-smh-inline-action button {
+    appearance: none;
+    border-radius: 999px;
+    border: 1px solid rgba(157, 174, 214, 0.2);
+    padding: 12px 18px;
+    cursor: pointer;
+    color: #f8fbff;
+    font-weight: 700;
+    font-size: 14px;
+    text-decoration: none;
+    background: linear-gradient(180deg, rgba(36, 52, 90, 0.96), rgba(25, 37, 65, 0.96));
+    box-shadow: 0 12px 28px rgba(0, 6, 18, 0.28);
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.v24-smh-auth-form button,
+.v24-smh-button-primary,
+.v24-smh-actions .v24-smh-button-primary {
+    border-color: rgba(255, 124, 200, 0.32);
+    background: linear-gradient(135deg, #ff4fa7 0%, #8c63ff 100%);
+}
+
+.v24-smh-button:hover,
+.v24-smh-module-tab:hover,
+.v24-smh-reader-actions button:hover,
+.v24-smh-toolbar button:hover,
+.v24-smh-actions button:hover,
+.v24-smh-inline-action button:hover,
+.v24-smh-auth-form button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(97, 184, 255, 0.32);
+    box-shadow: 0 18px 36px rgba(0, 7, 19, 0.36);
+}
+
+.v24-smh-link {
+    border: 0;
+    background: transparent;
+    color: var(--v24-accent);
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+
+.v24-smh-auth-alert {
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 122, 165, 0.28);
+    background: rgba(255, 79, 167, 0.12);
+    color: #ffd7e7;
+}
+
+.v24-smh-auth-meta {
+    margin-top: 16px;
+    font-size: 14px;
+}
+
+.v24-smh-auth-meta a,
+.v24-smh-app a {
+    color: var(--v24-accent);
+}
+
+.v24-smh-header {
+    position: relative;
+    top: 0;
+    flex: 0 0 auto;
+    z-index: 20;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 14px 18px;
+    margin-bottom: 0;
+    border-radius: var(--v24-radius-xl);
+    border: 1px solid var(--v24-border);
+    background:
+        linear-gradient(180deg, rgba(13, 23, 47, 0.94), rgba(10, 18, 35, 0.96)),
+        linear-gradient(135deg, rgba(61, 217, 255, 0.08), rgba(184, 109, 255, 0.06));
+    backdrop-filter: blur(24px);
+    box-shadow: var(--v24-shadow);
+}
+
+.v24-smh-module-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+}
+
+.v24-smh-module-tab {
+    min-width: 118px;
+    padding: 11px 18px;
+    background: rgba(18, 30, 58, 0.72);
+    border-color: rgba(157, 174, 214, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    color: #dbe5fb;
+}
+
+.v24-smh-module-tab.is-active {
+    color: #041119;
+    border-color: rgba(102, 255, 180, 0.56);
+    background: linear-gradient(135deg, #7af4a9 0%, #47dd92 100%);
+    box-shadow: 0 12px 24px rgba(71, 221, 146, 0.18);
+}
+
+.v24-smh-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.v24-smh-header-meta {
+    display: grid;
+    justify-items: end;
+    gap: 3px;
+    text-align: right;
+}
+
+.v24-smh-header-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--v24-accent);
+}
+
+.v24-smh-header-interface {
+    font-family: "Sora", "Manrope", sans-serif;
+    font-size: 15px;
+    color: #ffffff;
+}
+
+.v24-smh-user {
+    font-size: 12px;
+    font-weight: 700;
+    color: #d8e4ff;
+}
+
+.v24-smh-status {
+    font-size: 11px;
+    line-height: 1.3;
+    color: rgba(202, 214, 245, 0.72);
+}
+
+.v24-smh-module {
+    position: relative;
+    min-height: 0;
+    z-index: 1;
+}
+
+.v24-smh-module[hidden] {
+    display: none !important;
+}
+
+.v24-smh-module:not([hidden]) {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-module-toolbar,
+.v24-smh-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.v24-smh-list-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.v24-smh-list-counter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(61, 217, 255, 0.26);
+    background: rgba(18, 36, 67, 0.74);
+    color: #dff3ff;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: inset 0 0 0 1px rgba(61, 217, 255, 0.08);
+}
+
+.v24-smh-module-toolbar {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+    padding: 16px 18px;
+    border-radius: var(--v24-radius-lg);
+    border: 1px solid var(--v24-border);
+    background: rgba(11, 21, 42, 0.84);
+}
+
+.v24-smh-shell {
+    display: grid;
+    grid-template-columns: minmax(240px, 280px) minmax(300px, 390px) minmax(0, 1fr);
+    gap: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-dual {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    gap: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-contacts-shell {
+    display: grid;
+    grid-template-columns: minmax(240px, 290px) minmax(320px, 420px) minmax(0, 1fr);
+    gap: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-module[data-module-panel="contacts"] {
+    font-size: 13px;
+}
+
+.v24-smh-module[data-module-panel="contacts"] input[type="search"],
+.v24-smh-module[data-module-panel="contacts"] input[type="text"],
+.v24-smh-module[data-module-panel="contacts"] input[type="email"],
+.v24-smh-module[data-module-panel="contacts"] input[type="url"],
+.v24-smh-module[data-module-panel="contacts"] textarea,
+.v24-smh-module[data-module-panel="contacts"] select {
+    font-size: 12px;
+    padding: 12px 14px;
+}
+
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-button,
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-button-primary,
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-actions button,
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-reader-actions button,
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-contact-tabbar button,
+.v24-smh-module[data-module-panel="contacts"] .v24-smh-link {
+    font-size: 12px;
+}
+
+.v24-smh-sidebar,
+.v24-smh-list,
+.v24-smh-reader,
+.v24-smh-contacts-groups,
+.v24-smh-contacts-directory,
+.v24-smh-contacts-detail {
+    min-height: 0;
+    padding: 18px;
+    border-radius: var(--v24-radius-lg);
+    border: 1px solid var(--v24-border);
+    background:
+        linear-gradient(180deg, rgba(14, 24, 49, 0.92), rgba(10, 18, 34, 0.96)),
+        linear-gradient(135deg, rgba(61, 217, 255, 0.05), rgba(255, 79, 167, 0.04));
+    box-shadow: var(--v24-shadow);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.v24-smh-mail-list {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.v24-smh-mail-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.v24-smh-mail-toolbar button {
+    align-self: flex-start;
+    padding: 10px 18px;
+    font-size: 13px;
+}
+
+.v24-smh-sidebar h2,
+.v24-smh-attachments h3,
+.v24-smh-reader h3,
+.v24-smh-contact-group-section h3,
+.v24-smh-contact-section h3,
+.v24-smh-contact-editor-section h3 {
+    margin: 0 0 12px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--v24-accent);
+}
+
+.v24-smh-module-toolbar-contacts {
+    justify-content: space-between;
+    align-items: center;
+}
+
+.v24-smh-toolbar-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.v24-smh-toolbar-heading strong {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--v24-accent);
+}
+
+.v24-smh-toolbar-heading span {
+    color: var(--v24-text-soft);
+    font-size: 11px;
+}
+
+.v24-smh-list-button,
+.v24-smh-message,
+.v24-smh-record,
+.v24-smh-attachment {
+    display: block;
+    width: 100%;
+    text-align: left;
+    margin: 0 0 10px;
+    padding: 14px 15px;
+    border-radius: 18px;
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--v24-text);
+    cursor: pointer;
+}
+
+.v24-smh-message {
+    position: relative;
+    overflow: hidden;
+    padding: 13px 15px 12px;
+    border-radius: 20px;
+    box-shadow: 0 10px 22px rgba(3, 9, 20, 0.18);
+}
+
+.v24-smh-message::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 3px;
+    border-radius: 999px;
+    background: transparent;
+}
+
+.v24-smh-list-button:hover,
+.v24-smh-message:hover,
+.v24-smh-record:hover,
+.v24-smh-attachment:hover {
+    border-color: rgba(61, 217, 255, 0.22);
+    background: rgba(61, 217, 255, 0.08);
+}
+
+.v24-smh-list-button.is-active,
+.v24-smh-record.is-active,
+.v24-smh-message.is-active {
+    border-color: rgba(61, 217, 255, 0.32);
+    background: linear-gradient(135deg, rgba(61, 217, 255, 0.16), rgba(67, 99, 255, 0.08));
+    box-shadow: inset 0 0 0 1px rgba(61, 217, 255, 0.08);
+}
+
+.v24-smh-message.is-active::before {
+    background: linear-gradient(180deg, #62e9ff, #2ea8ff);
+}
+
+.v24-smh-message.is-unseen {
+    border-color: rgba(79, 227, 154, 0.32);
+    background: linear-gradient(135deg, rgba(79, 227, 154, 0.14), rgba(61, 217, 255, 0.08));
+}
+
+.v24-smh-message.is-unseen::before {
+    background: linear-gradient(180deg, #79f3bd, #3adfe8);
+}
+
+.v24-smh-account-button strong,
+.v24-smh-account-button small {
+    display: block;
+}
+
+.v24-smh-account-button strong {
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.v24-smh-account-button small {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--v24-text-soft);
+}
+
+.v24-smh-message strong,
+.v24-smh-message span,
+.v24-smh-message small,
+.v24-smh-record strong,
+.v24-smh-record span,
+.v24-smh-record small,
+.v24-smh-sidebar .v24-smh-list-button strong {
+    display: block;
+}
+
+.v24-smh-message strong,
+.v24-smh-record strong {
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.v24-smh-message-sender {
+    padding-right: 8px;
+    font-size: 15px;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.v24-smh-message-subject {
+    margin-top: 5px;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #dce7ff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.v24-smh-message-date {
+    margin-top: 4px;
+    font-size: 11px;
+    line-height: 1.2;
+    color: rgba(196, 213, 247, 0.72);
+}
+
+.v24-smh-message-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.v24-smh-envelope-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    color: #9bc6ff;
+    opacity: 0.94;
+}
+
+.v24-smh-envelope-icon.is-closed {
+    color: #6af2b3;
+}
+
+.v24-smh-envelope-icon svg {
+    width: 18px;
+    height: 18px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.v24-smh-message-meta,
+.v24-smh-pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.v24-smh-message-meta {
+    margin-top: 8px;
+    gap: 6px;
+}
+
+.v24-smh-message-meta span,
+.v24-smh-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(128, 152, 205, 0.18);
+    background: rgba(4, 12, 28, 0.56);
+    color: var(--v24-text-soft);
+    font-size: 11px;
+}
+
+.v24-smh-reader-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 18px;
+    margin-bottom: 16px;
+    min-width: 0;
+}
+
+.v24-smh-reader-header > div:first-child {
+    min-width: 0;
+}
+
+.v24-smh-reader-summary {
+    min-width: 0;
+}
+
+.v24-smh-reader-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.v24-smh-reader-kicker {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(61, 217, 255, 0.18);
+    background: rgba(7, 18, 36, 0.64);
+    color: var(--v24-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.v24-smh-reader-title-block {
+    margin-top: 14px;
+}
+
+.v24-smh-reader-header h2 {
+    margin: 0;
+    font-size: clamp(17px, 1.45vw, 22px);
+    line-height: 1.08;
+}
+
+.v24-smh-reader-meta {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.v24-smh-reader-header p,
+.v24-smh-reader-state {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--v24-text-soft);
+}
+
+.v24-smh-reader-header p strong,
+.v24-smh-reader-state strong {
+    color: #f5f8ff;
+}
+
+.v24-smh-reader-row,
+.v24-smh-reader-state {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+}
+
+.v24-smh-reader-row strong,
+.v24-smh-reader-state strong {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.v24-smh-inline-recipients {
+    display: inline-block;
+    max-width: 100%;
+    white-space: normal;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    vertical-align: bottom;
+}
+
+.v24-smh-reader-status-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.v24-smh-reader-status-pills span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(128, 152, 205, 0.18);
+    background: rgba(6, 15, 31, 0.8);
+    color: #d9e8ff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.v24-smh-reader-actions,
+.v24-smh-inline-action,
+.v24-smh-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.v24-smh-inline-action {
+    align-items: center;
+}
+
+.v24-smh-reader-actions-shell {
+    flex: 1 1 480px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 12px;
+    border-radius: 28px;
+    border: 1px solid rgba(128, 152, 205, 0.16);
+    background:
+        linear-gradient(180deg, rgba(12, 24, 46, 0.9), rgba(8, 17, 32, 0.88)),
+        rgba(8, 17, 32, 0.88);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 18px 40px rgba(0, 6, 18, 0.18);
+}
+
+.v24-smh-reader-actions {
+    flex: 1 1 auto;
+    max-width: none;
+    justify-content: flex-start;
+    align-items: flex-start;
+    align-content: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    overflow-x: visible;
+    padding-bottom: 0;
+}
+
+.v24-smh-reader-actions button,
+.v24-smh-reader-actions select {
+    min-height: 42px;
+    padding: 9px 15px;
+    font-size: 12px;
+    flex: 0 0 auto;
+}
+
+.v24-smh-reader-actions button {
+    border-radius: 18px;
+    border-color: rgba(154, 176, 221, 0.2);
+    background: linear-gradient(180deg, rgba(42, 60, 104, 0.94), rgba(28, 42, 74, 0.96));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.v24-smh-reader-actions .v24-smh-inline-action {
+    flex-wrap: wrap;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.v24-smh-reader-actions select {
+    min-width: 196px;
+    border-radius: 18px;
+    background: rgba(7, 16, 31, 0.92);
+    border: 1px solid rgba(128, 152, 205, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.v24-smh-reader-button {
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+}
+
+.v24-smh-reader-button-main {
+    min-width: 118px;
+}
+
+.v24-smh-reader-button-secondary {
+    min-width: 112px;
+    background: linear-gradient(180deg, rgba(35, 51, 88, 0.9), rgba(23, 35, 62, 0.96));
+}
+
+.v24-smh-reader-button-danger {
+    min-width: 94px;
+    border-color: rgba(255, 123, 171, 0.2);
+    background: linear-gradient(180deg, rgba(78, 37, 70, 0.92), rgba(44, 22, 42, 0.96));
+    color: #ffe1ec;
+}
+
+.v24-smh-reader-move button {
+    min-width: 96px;
+}
+
+.v24-smh-reader-panel {
+    padding: 16px;
+    border-radius: 22px;
+    border: 1px solid rgba(128, 152, 205, 0.14);
+    background:
+        linear-gradient(180deg, rgba(10, 20, 39, 0.92), rgba(7, 15, 29, 0.94)),
+        rgba(7, 15, 29, 0.94);
+}
+
+.v24-smh-reader-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.v24-smh-reader-panel-head strong {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--v24-accent);
+}
+
+.v24-smh-reader-panel-head span {
+    color: var(--v24-text-soft);
+    font-size: 11px;
+}
+
+.v24-smh-detail-grid,
+.v24-smh-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.v24-smh-body {
+    padding: 18px 20px;
+    border-radius: var(--v24-radius-md);
+    border: 1px solid rgba(128, 152, 205, 0.12);
+    background: rgba(5, 12, 26, 0.62);
+    line-height: 1.72;
+    color: #dbe7ff;
+    overflow: auto;
+}
+
+.v24-smh-body-content {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+}
+
+.v24-smh-body-content > :first-child {
+    margin-top: 0 !important;
+}
+
+.v24-smh-body-content > :last-child {
+    margin-bottom: 0 !important;
+}
+
+.v24-smh-body-content,
+.v24-smh-body-content * {
+    max-width: 100%;
+}
+
+.v24-smh-body-content .WordSection1,
+.v24-smh-body-content [class*="WordSection"] {
+    margin: 0;
+}
+
+.v24-smh-body-content p {
+    margin: 0 0 0.55em;
+}
+
+.v24-smh-body-content p:last-child {
+    margin-bottom: 0;
+}
+
+.v24-smh-body-content img {
+    max-width: 100% !important;
+    height: auto !important;
+}
+
+.v24-smh-body-content table,
+.v24-smh-body-content table[height],
+.v24-smh-body-content tbody,
+.v24-smh-body-content tr,
+.v24-smh-body-content td,
+.v24-smh-body-content th,
+.v24-smh-body-content [style*="height:100%"],
+.v24-smh-body-content [style*="height: 100%"],
+.v24-smh-body-content [style*="min-height"] {
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+.v24-smh-body pre {
+    white-space: pre-wrap;
+    margin: 0;
+    font-family: Consolas, monospace;
+}
+
+.v24-smh-contacts-groups,
+.v24-smh-contacts-directory,
+.v24-smh-contacts-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: hidden;
+}
+
+.v24-smh-contacts-pane-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.v24-smh-contacts-pane-header > div {
+    min-width: 0;
+}
+
+.v24-smh-contacts-pane-header h2 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.05;
+}
+
+.v24-smh-contacts-pane-header p {
+    margin: 8px 0 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--v24-text-soft);
+}
+
+.v24-smh-contacts-counter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(61, 217, 255, 0.22);
+    background: rgba(12, 24, 46, 0.88);
+    color: var(--v24-text-soft);
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.v24-smh-pane-search {
+    display: block;
+}
+
+.v24-smh-pane-search input {
+    width: 100%;
+}
+
+.v24-smh-contacts-scroll,
+[data-region="contact-groups"] {
+    overflow: auto;
+}
+
+.v24-smh-contact-group-section + .v24-smh-contact-group-section {
+    margin-top: 14px;
+}
+
+.v24-smh-contact-group {
+    display: grid;
+    width: 100%;
+    margin: 0 0 10px;
+    padding: 14px 15px;
+    text-align: left;
+    border-radius: 18px;
+    border: 1px solid rgba(128, 152, 205, 0.14);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--v24-text);
+    cursor: pointer;
+    gap: 5px;
+}
+
+.v24-smh-contact-group:hover {
+    border-color: rgba(61, 217, 255, 0.24);
+    background: rgba(61, 217, 255, 0.08);
+}
+
+.v24-smh-contact-group.is-active {
+    border-color: rgba(126, 247, 157, 0.6);
+    background: linear-gradient(135deg, rgba(126, 247, 157, 0.96), rgba(67, 233, 184, 0.88));
+    color: #07131e;
+    box-shadow: 0 14px 24px rgba(25, 130, 86, 0.18);
+}
+
+.v24-smh-contact-group strong,
+.v24-smh-contact-group span,
+.v24-smh-contact-group small {
+    display: block;
+}
+
+.v24-smh-contact-group strong {
+    font-size: 13px;
+}
+
+.v24-smh-contact-group span,
+.v24-smh-contact-group small {
+    font-size: 10px;
+    color: inherit;
+    opacity: 0.82;
+}
+
+.v24-smh-contact-list-empty,
+.v24-smh-contact-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 32px 24px;
+    text-align: center;
+    gap: 12px;
+    color: var(--v24-text-soft);
+}
+
+.v24-smh-contact-list-empty strong,
+.v24-smh-contact-empty h2 {
+    margin: 0;
+    color: var(--v24-text);
+}
+
+.v24-smh-contact-empty h2 {
+    font-size: 22px;
+}
+
+.v24-smh-contact-empty p {
+    max-width: 420px;
+    margin: 0;
+    font-size: 12px;
+}
+
+.v24-smh-contact-record {
+    padding: 14px;
+}
+
+.v24-smh-contact-record strong {
+    font-size: 14px;
+}
+
+.v24-smh-contact-record span {
+    font-size: 12px;
+}
+
+.v24-smh-contact-record small {
+    font-size: 10px;
+}
+
+.v24-smh-contact-record-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.v24-smh-contact-record-copy {
+    min-width: 0;
+}
+
+.v24-smh-contact-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: 14px;
+    border: 1px solid rgba(95, 119, 180, 0.34);
+    background: linear-gradient(160deg, rgba(43, 58, 102, 0.94), rgba(22, 33, 62, 0.9));
+    color: #f7fbff;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.v24-smh-contact-avatar-xl {
+    width: 74px;
+    height: 74px;
+    border-radius: 22px;
+    font-size: 22px;
+}
+
+.v24-smh-contact-avatar-ghost {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--v24-accent);
+}
+
+.v24-smh-contact-card,
+.v24-smh-contact-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 100%;
+}
+
+.v24-smh-contact-hero,
+.v24-smh-contact-editor-hero {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.v24-smh-contact-hero {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.v24-smh-contact-hero-copy h2 {
+    margin: 4px 0 10px;
+    font-size: clamp(22px, 1.75vw, 30px);
+    line-height: 0.98;
+}
+
+.v24-smh-contact-hero-copy p {
+    margin: 0;
+    color: var(--v24-text-soft);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.v24-smh-contact-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(61, 217, 255, 0.24);
+    background: rgba(5, 18, 36, 0.64);
+    color: var(--v24-accent);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+}
+
+.v24-smh-contact-actions {
+    max-width: 260px;
+}
+
+.v24-smh-contact-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+}
+
+.v24-smh-contact-row {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    min-height: 52px;
+    border-radius: 16px;
+    border: 1px solid rgba(128, 152, 205, 0.14);
+    background: rgba(5, 16, 31, 0.62);
+    overflow: hidden;
+}
+
+.v24-smh-contact-row > span,
+.v24-smh-contact-row > div {
+    padding: 12px 14px;
+}
+
+.v24-smh-contact-row > span {
+    border-right: 1px solid rgba(128, 152, 205, 0.12);
+    color: #d5def5;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.v24-smh-contact-row > div {
+    color: var(--v24-text);
+    font-size: 12px;
+    word-break: break-word;
+}
+
+.v24-smh-contact-row em {
+    color: var(--v24-text-soft);
+    font-style: normal;
+}
+
+.v24-smh-contact-tabbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid rgba(128, 152, 205, 0.14);
+}
+
+.v24-smh-contact-tabbar button {
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 12px 12px 0 0;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    color: var(--v24-text-soft);
+    font-weight: 700;
+    cursor: default;
+}
+
+.v24-smh-contact-tabbar button.is-active {
+    background: rgba(61, 217, 255, 0.08);
+    border-color: rgba(61, 217, 255, 0.22);
+    color: #f7fbff;
+}
+
+.v24-smh-contact-section,
+.v24-smh-contact-editor-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.v24-smh-contact-rows {
+    display: grid;
+    gap: 10px;
+}
+
+.v24-smh-contact-note {
+    padding: 18px 20px;
+    border-radius: 16px;
+    border: 1px solid rgba(128, 152, 205, 0.14);
+    background: rgba(5, 12, 26, 0.72);
+}
+
+.v24-smh-contact-note pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    color: var(--v24-text-soft);
+    font-size: 12px;
+    line-height: 1.7;
+}
+
+.v24-smh-contact-editor-summary {
+    min-width: 0;
+}
+
+.v24-smh-contact-sheet {
+    padding: 6px 2px 4px;
+    overflow: auto;
+}
+
+.v24-smh-contact-editor-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.v24-smh-contact-editor-section {
+    padding: 16px 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(128, 152, 205, 0.14);
+    background: rgba(5, 12, 26, 0.48);
+}
+
+.v24-smh-field-span-2 {
+    grid-column: span 2;
+}
+
+.v24-smh-attachments {
+    margin-top: 0;
+}
+
+.v24-smh-compose,
+.v24-smh-sheet {
+    position: fixed;
+    inset: 22px clamp(14px, 2vw, 26px);
+    width: auto;
+    max-height: calc(100vh - 44px);
+    padding: 20px;
+    overflow: auto;
+    border-radius: 32px;
+    border: 1px solid rgba(121, 148, 210, 0.22);
+    background:
+        linear-gradient(180deg, rgba(10, 18, 36, 0.98), rgba(7, 12, 24, 0.98)),
+        linear-gradient(135deg, rgba(61, 217, 255, 0.08), rgba(255, 79, 167, 0.05));
+    box-shadow: 0 40px 120px rgba(0, 4, 14, 0.58);
+    z-index: 9999;
+}
+
+.v24-smh-sheet {
+    max-width: 1120px;
+    margin: 0 auto;
+}
+
+.v24-smh-compose-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.v24-smh-compose-header h2 {
+    margin: 0;
+    font-size: clamp(24px, 2vw, 34px);
+}
+
+.v24-smh-field,
+.v24-smh-sheet label {
+    margin-bottom: 12px;
+}
+
+.v24-smh-shell-calendar {
+    grid-template-columns: 320px minmax(340px, 440px) minmax(0, 1fr);
+}
+
+.v24-smh-calendar-shell {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-calendar-sidebar,
+.v24-smh-calendar-main {
+    min-height: 0;
+    padding: 18px;
+    border-radius: var(--v24-radius-lg);
+    border: 1px solid var(--v24-border);
+    background:
+        linear-gradient(180deg, rgba(14, 24, 49, 0.92), rgba(10, 18, 34, 0.96)),
+        linear-gradient(135deg, rgba(61, 217, 255, 0.05), rgba(255, 79, 167, 0.04));
+    box-shadow: var(--v24-shadow);
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.v24-smh-calendar-sidebar {
+    display: grid;
+    align-content: start;
+    gap: 14px;
+}
+
+.v24-smh-calendar-sidebar-head,
+.v24-smh-calendar-topbar,
+.v24-smh-calendar-range-bar,
+.v24-smh-calendar-mini-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.v24-smh-calendar-sidebar-head h2,
+.v24-smh-calendar-range-copy h2 {
+    margin: 0;
+    font-family: "Sora", "Manrope", sans-serif;
+}
+
+.v24-smh-calendar-search input {
+    border-radius: 14px !important;
+    padding-block: 12px !important;
+}
+
+.v24-smh-calendar-main {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    gap: 14px;
+}
+
+.v24-smh-calendar-topbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.v24-smh-calendar-topbar-left,
+.v24-smh-calendar-topbar-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.v24-smh-calendar-topbar-left {
+    flex: 1 1 520px;
+}
+
+.v24-smh-calendar-search-events {
+    flex: 1 1 220px;
+    min-width: 220px;
+}
+
+.v24-smh-calendar-view-switch {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px;
+    border-radius: 14px;
+    background: rgba(7, 14, 30, 0.62);
+    border: 1px solid rgba(121, 148, 210, 0.14);
+}
+
+.v24-smh-calendar-view-button {
+    appearance: none;
+    border: 1px solid rgba(121, 148, 210, 0.2);
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: rgba(16, 28, 58, 0.68);
+    color: var(--v24-text-soft);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.v24-smh-calendar-view-button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(61, 217, 255, 0.28);
+}
+
+.v24-smh-calendar-view-button.is-active {
+    border-color: rgba(97, 255, 178, 0.48);
+    background: linear-gradient(135deg, #86f8ba 0%, #4fe39a 100%);
+    color: #07111e;
+}
+
+.v24-smh-calendar-range-copy {
+    display: grid;
+    gap: 4px;
+}
+
+.v24-smh-calendar-range-copy span {
+    font-size: 12px;
+    color: var(--v24-muted);
+}
+
+.v24-smh-calendar-board {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.v24-smh-calendar-empty {
+    min-height: 220px;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    border-radius: 18px;
+    border: 1px dashed rgba(121, 148, 210, 0.18);
+    background: rgba(4, 10, 24, 0.42);
+    color: var(--v24-muted);
+}
+
+.v24-smh-calendar-grid-week,
+.v24-smh-calendar-grid-month,
+.v24-smh-calendar-agenda {
+    border-radius: 18px;
+    border: 1px solid rgba(121, 148, 210, 0.16);
+    background: rgba(4, 10, 24, 0.42);
+    overflow: hidden;
+}
+
+.v24-smh-calendar-grid-head {
+    display: grid;
+    grid-template-columns: 76px repeat(auto-fit, minmax(140px, 1fr));
+    border-bottom: 1px solid rgba(121, 148, 210, 0.12);
+    background: rgba(9, 16, 34, 0.86);
+}
+
+.v24-smh-calendar-axis-spacer,
+.v24-smh-calendar-axis-label,
+.v24-smh-calendar-time-label {
+    display: grid;
+    align-items: center;
+    justify-items: center;
+    padding: 10px 8px;
+    color: var(--v24-muted);
+    font-size: 12px;
+    border-right: 1px solid rgba(121, 148, 210, 0.1);
+}
+
+.v24-smh-calendar-axis-label {
+    justify-items: start;
+    padding-left: 12px;
+}
+
+.v24-smh-calendar-day-head {
+    appearance: none;
+    border: 0;
+    border-left: 1px solid rgba(121, 148, 210, 0.1);
+    background: transparent;
+    color: var(--v24-text-soft);
+    padding: 12px 10px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.v24-smh-calendar-day-head strong,
+.v24-smh-calendar-day-head span {
+    display: block;
+}
+
+.v24-smh-calendar-day-head strong {
+    font-size: 12px;
+    text-transform: capitalize;
+    color: var(--v24-text);
+}
+
+.v24-smh-calendar-day-head span {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--v24-muted);
+}
+
+.v24-smh-calendar-day-head.is-today {
+    background: rgba(255, 211, 77, 0.08);
+}
+
+.v24-smh-calendar-all-day-row {
+    display: grid;
+    grid-template-columns: 76px repeat(auto-fit, minmax(140px, 1fr));
+    border-bottom: 1px solid rgba(121, 148, 210, 0.12);
+}
+
+.v24-smh-calendar-all-day-cell,
+.v24-smh-calendar-slot {
+    min-height: 44px;
+    padding: 6px;
+    border-left: 1px solid rgba(121, 148, 210, 0.08);
+    border-bottom: 1px solid rgba(121, 148, 210, 0.08);
+    background: rgba(8, 15, 32, 0.24);
+}
+
+.v24-smh-calendar-slot {
+    cursor: pointer;
+}
+
+.v24-smh-calendar-slot:hover,
+.v24-smh-calendar-month-day:hover {
+    background: rgba(61, 217, 255, 0.06);
+}
+
+.v24-smh-calendar-slot.is-today,
+.v24-smh-calendar-month-day.is-today {
+    background: rgba(255, 211, 77, 0.08);
+}
+
+.v24-smh-calendar-time-grid {
+    display: grid;
+}
+
+.v24-smh-calendar-time-label {
+    min-height: 56px;
+}
+
+.v24-smh-calendar-event-chip {
+    --event-color: #0d5c63;
+    display: grid;
+    gap: 2px;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--event-color) 52%, rgba(255, 255, 255, 0.16));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--event-color) 30%, rgba(16, 28, 58, 0.92)), rgba(13, 21, 43, 0.94));
+    color: #eff5ff;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 10px 18px rgba(0, 8, 20, 0.18);
+}
+
+.v24-smh-calendar-event-chip.is-compact {
+    padding: 6px 8px;
+}
+
+.v24-smh-calendar-event-chip.is-active {
+    box-shadow: 0 0 0 2px rgba(97, 255, 178, 0.3), 0 12px 20px rgba(0, 8, 20, 0.22);
+}
+
+.v24-smh-calendar-event-chip strong {
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.v24-smh-calendar-event-time {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(239, 245, 255, 0.76);
+}
+
+.v24-smh-calendar-month-weekdays,
+.v24-smh-calendar-mini-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.v24-smh-calendar-month-weekdays span,
+.v24-smh-calendar-mini-weekdays span {
+    padding: 10px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--v24-muted);
+    border-bottom: 1px solid rgba(121, 148, 210, 0.12);
+}
+
+.v24-smh-calendar-month-grid,
+.v24-smh-calendar-mini-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.v24-smh-calendar-month-day {
+    min-height: 132px;
+    padding: 10px;
+    border-right: 1px solid rgba(121, 148, 210, 0.08);
+    border-bottom: 1px solid rgba(121, 148, 210, 0.08);
+}
+
+.v24-smh-calendar-month-day.is-outside {
+    opacity: 0.48;
+}
+
+.v24-smh-calendar-month-day-number {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--v24-text);
+    font-weight: 800;
+    padding: 0;
+    cursor: pointer;
+}
+
+.v24-smh-calendar-month-events {
+    display: grid;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.v24-smh-calendar-more {
+    font-size: 11px;
+    color: var(--v24-muted);
+}
+
+.v24-smh-calendar-agenda {
+    padding: 14px;
+}
+
+.v24-smh-calendar-agenda-item {
+    margin-bottom: 12px;
+}
+
+.v24-smh-calendar-detail {
+    min-height: 240px;
+}
+
+.v24-smh-calendar-mini-card {
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(121, 148, 210, 0.14);
+    background: rgba(7, 14, 30, 0.54);
+}
+
+.v24-smh-calendar-mini-head strong {
+    text-transform: capitalize;
+}
+
+.v24-smh-calendar-mini-day {
+    appearance: none;
+    border: 0;
+    min-height: 34px;
+    background: transparent;
+    color: var(--v24-text-soft);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.v24-smh-calendar-mini-day.is-outside {
+    opacity: 0.42;
+}
+
+.v24-smh-calendar-mini-day.is-today {
+    color: #07111e;
+    background: rgba(255, 211, 77, 0.88);
+    border-radius: 10px;
+}
+
+.v24-smh-calendar-mini-day.is-range {
+    box-shadow: inset 0 0 0 1px rgba(61, 217, 255, 0.24);
+    border-radius: 10px;
+}
+
+.v24-smh-card-stack {
+    display: grid;
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.v24-smh-card {
+    padding: 18px;
+    border-radius: var(--v24-radius-md);
+    border: 1px solid var(--v24-border);
+    background: rgba(7, 14, 30, 0.58);
+}
+
+.v24-smh-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.v24-smh-card-header h3,
+.v24-smh-card-header h4 {
+    margin: 0 0 8px;
+}
+
+.v24-smh-color-chip,
+.v24-smh-color-badge {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--chip, var(--v24-accent));
+    margin-right: 8px;
+    flex: 0 0 auto;
+}
+
+.v24-smh-color-badge {
+    width: 18px;
+    height: 18px;
+    margin-right: 0;
+}
+
+.v24-smh-share-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 180px;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(121, 148, 210, 0.14);
+}
+
+.v24-smh-share-row:last-child {
+    border-bottom: 0;
+}
+
+.v24-smh-checkbox {
+    display: flex !important;
+    align-items: center;
+    gap: 10px;
+}
+
+.v24-smh-checkbox input {
+    width: auto !important;
+    accent-color: var(--v24-accent-strong);
+}
+
+.v24-smh-admin-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin: 16px 0;
+}
+
+.v24-smh-admin-card {
+    padding: 18px;
+    border-radius: var(--v24-radius-md);
+    border: 1px solid rgba(121, 148, 210, 0.18);
+    background: #ffffff;
+    color: #172238;
+}
+
+.v24-smh-admin-card h2,
+.v24-smh-admin-card p,
+.v24-smh-admin-card label span {
+    color: #172238;
+}
+
+.v24-smh-admin-card .description,
+.v24-smh-admin-card td,
+.v24-smh-admin-card th {
+    color: #495977;
+}
+
+.v24-smh-admin .widefat {
+    border-collapse: collapse;
+}
+
+.v24-smh-admin .widefat th,
+.v24-smh-admin .widefat td {
+    padding: 10px 12px;
+}
+
+@media (max-width: 1400px) {
+    .v24-smh-header {
+        grid-template-columns: 1fr;
+        justify-items: stretch;
+    }
+
+    .v24-smh-header-actions,
+    .v24-smh-header-meta {
+        justify-content: space-between;
+        justify-items: start;
+        text-align: left;
+    }
+
+    .v24-smh-module-nav {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 1180px) {
+    .v24-smh-shell,
+    .v24-smh-dual,
+    .v24-smh-contacts-shell,
+    .v24-smh-admin-grid,
+    .v24-smh-detail-grid,
+    .v24-smh-form-grid,
+    .v24-smh-shell-calendar,
+    .v24-smh-calendar-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .v24-smh-sidebar,
+    .v24-smh-list,
+    .v24-smh-reader,
+    .v24-smh-contacts-groups,
+    .v24-smh-contacts-directory,
+    .v24-smh-contacts-detail,
+    .v24-smh-calendar-sidebar,
+    .v24-smh-calendar-main {
+        min-height: 280px;
+    }
+
+    .v24-smh-calendar-main {
+        grid-template-rows: auto auto minmax(380px, 1fr) auto;
+    }
+}
+
+@media (max-width: 760px) {
+    .v24-smh-app {
+        padding: 12px;
+    }
+
+    .v24-smh-auth-card,
+    .v24-smh-sidebar,
+    .v24-smh-list,
+    .v24-smh-reader,
+    .v24-smh-contacts-groups,
+    .v24-smh-contacts-directory,
+    .v24-smh-contacts-detail,
+    .v24-smh-module-toolbar,
+    .v24-smh-calendar-sidebar,
+    .v24-smh-calendar-main {
+        padding: 16px;
+    }
+
+    .v24-smh-brand-mark {
+        font-size: 28px;
+    }
+
+    .v24-smh-auth-brand h1,
+    .v24-smh-reader-header h2,
+    .v24-smh-compose-header h2 {
+        font-size: 26px;
+    }
+
+    .v24-smh-header-actions,
+    .v24-smh-reader-actions,
+    .v24-smh-inline-action,
+    .v24-smh-module-toolbar,
+    .v24-smh-toolbar,
+    .v24-smh-actions,
+    .v24-smh-calendar-topbar,
+    .v24-smh-calendar-topbar-left,
+    .v24-smh-calendar-topbar-right {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .v24-smh-header-meta {
+        width: 100%;
+    }
+
+    .v24-smh-contact-hero,
+    .v24-smh-contact-editor-hero,
+    .v24-smh-contact-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .v24-smh-reader-row,
+    .v24-smh-reader-state {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .v24-smh-reader-actions-shell {
+        width: 100%;
+    }
+
+    .v24-smh-field-span-2 {
+        grid-column: auto;
+    }
+
+    .v24-smh-contact-row {
+        grid-template-columns: 1fr;
+    }
+
+    .v24-smh-contact-row > span {
+        border-right: none;
+        border-bottom: 1px solid rgba(128, 152, 205, 0.12);
+    }
+
+    .v24-smh-calendar-grid-head,
+    .v24-smh-calendar-all-day-row,
+    .v24-smh-calendar-time-grid {
+        min-width: 860px;
+    }
+
+    .v24-smh-calendar-board {
+        overflow: auto;
+    }
+
+    .v24-smh-compose,
+    .v24-smh-sheet {
+        inset: 10px;
+        padding: 16px;
+        border-radius: 24px;
+        max-height: calc(100vh - 20px);
+    }
+}

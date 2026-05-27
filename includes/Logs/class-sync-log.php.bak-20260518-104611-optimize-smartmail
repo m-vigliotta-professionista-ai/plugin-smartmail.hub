@@ -1,0 +1,26 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Sync_Log
+{
+    public static function record(array $data): void
+    {
+        global $wpdb;
+        $wpdb->insert($wpdb->prefix . V24_SMH_TABLE_PREFIX . 'sync_log', [
+            'account_id' => isset($data['account_id']) ? (int) $data['account_id'] : null,
+            'folder_id' => isset($data['folder_id']) ? (int) $data['folder_id'] : null,
+            'job_id' => isset($data['job_id']) ? (int) $data['job_id'] : null,
+            'sync_type' => sanitize_key($data['sync_type'] ?? 'manual'),
+            'status' => sanitize_key($data['status'] ?? 'done'),
+            'items_seen' => (int) ($data['items_seen'] ?? 0),
+            'items_created' => (int) ($data['items_created'] ?? 0),
+            'items_updated' => (int) ($data['items_updated'] ?? 0),
+            'items_deleted' => (int) ($data['items_deleted'] ?? 0),
+            'duration_ms' => isset($data['duration_ms']) ? (int) $data['duration_ms'] : null,
+            'error_message' => isset($data['error_message']) ? sanitize_textarea_field($data['error_message']) : null,
+            'created_at' => current_time('mysql'),
+        ]);
+    }
+}

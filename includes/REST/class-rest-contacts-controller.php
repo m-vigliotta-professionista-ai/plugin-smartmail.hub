@@ -1,0 +1,94 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Contacts_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/contacts', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'index'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_contacts'),
+                'args' => [
+                    'search' => V24_SMH_REST_Bootstrap::arg_search(),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_contacts'),
+            ],
+        ]);
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/contacts/search', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'search'],
+            'permission_callback' => static fn() => current_user_can('v24_smh_read_contacts'),
+            'args' => [
+                'search' => V24_SMH_REST_Bootstrap::arg_search(),
+            ],
+        ]);
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/contacts/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'show'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_contacts'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID contatto.'),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_contacts'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID contatto.'),
+                ],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [$this, 'delete'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_contacts'),
+                'args' => [
+                    'id' => V24_SMH_REST_Bootstrap::arg_id('ID contatto.'),
+                ],
+            ],
+        ]);
+    }
+
+    public function index(WP_REST_Request $request): WP_REST_Response
+    {
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Contacts_Service())->search((string) $request->get_param('search')));
+    }
+
+    public function search(WP_REST_Request $request): WP_REST_Response
+    {
+        return $this->index($request);
+    }
+
+    public function create(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Contacts_Service())->create($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function show(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Contacts_Service())->find((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Contacts_Service())->update((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function delete(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Contacts_Service())->delete((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+}

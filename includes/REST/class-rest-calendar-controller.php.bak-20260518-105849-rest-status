@@ -1,0 +1,169 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Calendar_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/calendars', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'calendars'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create_calendar'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/calendars/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'show_calendar'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update_calendar'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [$this, 'delete_calendar'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/calendars/(?P<id>\d+)/shares', [
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update_calendar_shares'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/users', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'users'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_calendar'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/events', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'index'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/calendar/events/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'show'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [$this, 'delete'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_calendar'),
+            ],
+        ]);
+    }
+
+    public function calendars(): WP_REST_Response
+    {
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Calendar_Service())->list_calendars());
+    }
+
+    public function create_calendar(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->create_calendar($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function show_calendar(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->find_calendar((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update_calendar(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->update_calendar((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function delete_calendar(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->delete_calendar((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update_calendar_shares(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->replace_calendar_shares((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function users(): WP_REST_Response
+    {
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Calendar_Service())->available_users());
+    }
+
+    public function index(WP_REST_Request $request): WP_REST_Response
+    {
+        $calendar_ids = $request->get_param('calendar_ids');
+        if (!is_array($calendar_ids)) {
+            $calendar_ids = array_filter(array_map('intval', explode(',', (string) $calendar_ids)));
+        }
+
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Calendar_Service())->list(
+            (string) $request->get_param('start'),
+            (string) $request->get_param('end'),
+            ['calendar_ids' => $calendar_ids]
+        ));
+    }
+
+    public function create(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->create($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function show(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->find(
+            (int) $request['id'],
+            $request->get_param('occurrence_start') ? (string) $request->get_param('occurrence_start') : null
+        );
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->update((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function delete(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Calendar_Service())->delete((int) $request['id'], $request->get_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+}

@@ -1,0 +1,74 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Tasks_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/tasks', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'index'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_tasks'),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_tasks'),
+            ],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/tasks/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'show'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_tasks'),
+            ],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [$this, 'update'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_tasks'),
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [$this, 'delete'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_tasks'),
+            ],
+        ]);
+    }
+
+    public function index(WP_REST_Request $request): WP_REST_Response
+    {
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Tasks_Service())->list([
+            'status' => (string) $request->get_param('status'),
+            'assigned_user_id' => (int) $request->get_param('assigned_user_id'),
+            'search' => (string) $request->get_param('search'),
+        ]));
+    }
+
+    public function create(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Tasks_Service())->create($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function show(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Tasks_Service())->find((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function update(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Tasks_Service())->update((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function delete(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Tasks_Service())->delete((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+}

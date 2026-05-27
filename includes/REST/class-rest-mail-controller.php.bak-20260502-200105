@@ -1,0 +1,428 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Mail_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/folders', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'folders'],
+            'permission_callback' => [$this, 'can_read_account'],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'messages'],
+            'permission_callback' => [$this, 'can_read_account'],
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'message'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/send', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'send'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_send_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/reply', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'reply'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_send_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/forward', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'forward'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_send_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/seen', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'seen'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/flag', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'flag'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/move', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'move'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/messages/(?P<id>\d+)/delete', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'delete'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/mail/attachments/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [$this, 'attachment'],
+            'permission_callback' => static function () {
+                return current_user_can('v24_smh_read_mail');
+            },
+        ]);
+    }
+
+    public function can_read_account(WP_REST_Request $request): bool
+    {
+        return V24_SMH_Permissions::current_user_can_account((int) $request->get_param('account_id'));
+    }
+
+    public function folders(WP_REST_Request $request): WP_REST_Response
+    {
+        $data = (new V24_SMH_Folder_Repository())->list_by_account((int) $request->get_param('account_id'));
+        return V24_SMH_REST_Bootstrap::success($data);
+    }
+
+    public function messages(WP_REST_Request $request): WP_REST_Response
+    {
+        $page = max(1, (int) ($request->get_param('page') ?: 1));
+        $per_page = min(100, max(1, (int) ($request->get_param('per_page') ?: 25)));
+        $search = sanitize_text_field((string) ($request->get_param('search') ?: ''));
+        $seen_param = $request->get_param('seen');
+        $seen = null;
+        if ($seen_param !== null && $seen_param !== '') {
+            $seen = filter_var($seen_param, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        }
+
+        $result = (new V24_SMH_Mail_Repository())->list_messages(
+            (int) $request->get_param('account_id'),
+            (int) $request->get_param('folder_id'),
+            $page,
+            $per_page,
+            $search,
+            $seen
+        );
+
+        return V24_SMH_REST_Bootstrap::success($result['items'], [
+            'pagination' => [
+                'page' => $result['page'],
+                'per_page' => $result['per_page'],
+                'total' => $result['total'],
+            ],
+        ]);
+    }
+
+    public function message(WP_REST_Request $request)
+    {
+        $repo = new V24_SMH_Mail_Repository();
+        $attachment_repo = new V24_SMH_Attachment_Repository();
+        $message = $repo->find((int) $request['id']);
+
+        if (!$message || !V24_SMH_Permissions::current_user_can_account((int) $message['account_id'])) {
+            return new WP_Error('message_not_found', 'Messaggio non trovato.', ['status' => 404]);
+        }
+
+        $body = $repo->get_body((int) $message['id']);
+        $recipients = $repo->get_recipients((int) $message['id']);
+        $attachments = $attachment_repo->list_by_message((int) $message['id']);
+
+        if (!$body || !$recipients || (!$attachments && !empty($message['has_attachments']))) {
+            $hydrated = $this->hydrate_message($message);
+            if (is_wp_error($hydrated)) {
+                return $hydrated;
+            }
+
+            $body = $repo->get_body((int) $message['id']);
+            $recipients = $repo->get_recipients((int) $message['id']);
+            $attachments = $attachment_repo->list_by_message((int) $message['id']);
+            $message = $repo->find((int) $message['id']) ?: $message;
+        }
+
+        return V24_SMH_REST_Bootstrap::success([
+            'id' => (int) $message['id'],
+            'account_id' => (int) $message['account_id'],
+            'folder_id' => (int) $message['folder_id'],
+            'subject' => $message['subject'] ?? '',
+            'from_name' => $message['from_name'] ?? '',
+            'from_email' => $message['from_email'] ?? '',
+            'reply_to_email' => $message['reply_to_email'] ?? '',
+            'date_received' => $message['date_received'] ?? '',
+            'is_seen' => !empty($message['is_seen']),
+            'is_flagged' => !empty($message['is_flagged']),
+            'has_attachments' => !empty($message['has_attachments']),
+            'body_plain' => $body['body_plain'] ?? '',
+            'body_html' => $body['body_html_sanitized'] ?? '',
+            'recipients' => $recipients,
+            'attachments' => $attachments,
+        ]);
+    }
+
+    public function send(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Compose_Service())->send($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function reply(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Compose_Service())->reply((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function forward(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Compose_Service())->forward((int) $request['id'], $request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function seen(WP_REST_Request $request)
+    {
+        $repo = new V24_SMH_Mail_Repository();
+        $context = $this->message_context((int) $request['id']);
+        if (is_wp_error($context)) {
+            return $context;
+        }
+
+        $is_seen = filter_var($request->get_param('is_seen'), FILTER_VALIDATE_BOOLEAN);
+        $result = (new V24_SMH_IMAP_Client())->set_seen(
+            $context['account'],
+            $context['folder']['full_name'],
+            (int) $context['message']['uid'],
+            $is_seen
+        );
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $repo->update_seen((int) $context['message']['id'], $is_seen);
+        $counts = $repo->folder_counts((int) $context['message']['folder_id']);
+        (new V24_SMH_Folder_Repository())->update_counts((int) $context['message']['folder_id'], $counts['total'], $counts['unseen']);
+        return V24_SMH_REST_Bootstrap::success(['is_seen' => $is_seen]);
+    }
+
+    public function flag(WP_REST_Request $request)
+    {
+        $repo = new V24_SMH_Mail_Repository();
+        $context = $this->message_context((int) $request['id']);
+        if (is_wp_error($context)) {
+            return $context;
+        }
+
+        $is_flagged = filter_var($request->get_param('is_flagged'), FILTER_VALIDATE_BOOLEAN);
+        $result = (new V24_SMH_IMAP_Client())->set_flagged(
+            $context['account'],
+            $context['folder']['full_name'],
+            (int) $context['message']['uid'],
+            $is_flagged
+        );
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $repo->update_flagged((int) $context['message']['id'], $is_flagged);
+        return V24_SMH_REST_Bootstrap::success(['is_flagged' => $is_flagged]);
+    }
+
+    public function move(WP_REST_Request $request)
+    {
+        $repo = new V24_SMH_Mail_Repository();
+        $folder_repo = new V24_SMH_Folder_Repository();
+        $context = $this->message_context((int) $request['id']);
+        if (is_wp_error($context)) {
+            return $context;
+        }
+
+        $target_folder_id = (int) $request->get_param('target_folder_id');
+        $target_folder = $folder_repo->find($target_folder_id);
+        if (!$target_folder || (int) $target_folder['account_id'] !== (int) $context['account']['id']) {
+            return new WP_Error('folder_not_found', 'Cartella di destinazione non trovata.', ['status' => 404]);
+        }
+
+        if ((int) $target_folder['id'] === (int) $context['folder']['id']) {
+            return V24_SMH_REST_Bootstrap::success([
+                'message_id' => (int) $context['message']['id'],
+                'target_folder_id' => (int) $target_folder['id'],
+            ]);
+        }
+
+        $result = (new V24_SMH_IMAP_Client())->move_message(
+            $context['account'],
+            $context['folder']['full_name'],
+            (int) $context['message']['uid'],
+            $target_folder['full_name']
+        );
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $repo->mark_deleted((int) $context['message']['id']);
+        $source_counts = $repo->folder_counts((int) $context['folder']['id']);
+        $folder_repo->update_counts((int) $context['folder']['id'], $source_counts['total'], $source_counts['unseen']);
+
+        return V24_SMH_REST_Bootstrap::success([
+            'message_id' => (int) $context['message']['id'],
+            'target_folder_id' => (int) $target_folder['id'],
+            'requires_sync' => true,
+        ]);
+    }
+
+    public function delete(WP_REST_Request $request)
+    {
+        $repo = new V24_SMH_Mail_Repository();
+        $folder_repo = new V24_SMH_Folder_Repository();
+        $context = $this->message_context((int) $request['id']);
+        if (is_wp_error($context)) {
+            return $context;
+        }
+
+        $trash_folder = $this->trash_folder_for_account((int) $context['account']['id']);
+
+        if ($trash_folder && (int) $trash_folder['id'] !== (int) $context['folder']['id']) {
+            $result = (new V24_SMH_IMAP_Client())->move_message(
+                $context['account'],
+                $context['folder']['full_name'],
+                (int) $context['message']['uid'],
+                $trash_folder['full_name']
+            );
+        } else {
+            $result = (new V24_SMH_IMAP_Client())->delete_message(
+                $context['account'],
+                $context['folder']['full_name'],
+                (int) $context['message']['uid']
+            );
+        }
+
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $repo->mark_deleted((int) $context['message']['id']);
+        $source_counts = $repo->folder_counts((int) $context['folder']['id']);
+        $folder_repo->update_counts((int) $context['folder']['id'], $source_counts['total'], $source_counts['unseen']);
+
+        return V24_SMH_REST_Bootstrap::success([
+            'message_id' => (int) $context['message']['id'],
+            'deleted' => true,
+            'moved_to_trash' => $trash_folder && (int) $trash_folder['id'] !== (int) $context['folder']['id'],
+            'requires_sync' => (bool) $trash_folder,
+        ]);
+    }
+
+    public function attachment(WP_REST_Request $request)
+    {
+        $attachment_repo = new V24_SMH_Attachment_Repository();
+        $attachment = $attachment_repo->find((int) $request['id']);
+        if (!$attachment) {
+            return new WP_Error('attachment_not_found', 'Allegato non trovato.', ['status' => 404]);
+        }
+
+        $message = (new V24_SMH_Mail_Repository())->find((int) $attachment['message_id']);
+        if (!$message || !V24_SMH_Permissions::current_user_can_account((int) $message['account_id'])) {
+            return new WP_Error('attachment_not_found', 'Allegato non trovato.', ['status' => 404]);
+        }
+
+        $account = (new V24_SMH_Account_Repository())->find((int) $message['account_id']);
+        $folder = (new V24_SMH_Folder_Repository())->find((int) $message['folder_id']);
+        if (!$account || !$folder) {
+            return new WP_Error('attachment_not_found', 'Contesto allegato non disponibile.', ['status' => 404]);
+        }
+
+        $result = (new V24_SMH_IMAP_Client())->fetch_attachment_content(
+            $account,
+            $folder['full_name'],
+            (int) $message['uid'],
+            (string) $attachment['part_id']
+        );
+
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        $attachment_repo->mark_downloaded((int) $attachment['id']);
+        V24_SMH_Audit_Log::record('attachment_downloaded', [
+            'account_id' => (int) $message['account_id'],
+            'entity_type' => 'attachment',
+            'entity_id' => (int) $attachment['id'],
+        ]);
+
+        return V24_SMH_REST_Bootstrap::success([
+            'filename' => $result['filename'],
+            'mime_type' => $result['mime_type'],
+            'size_bytes' => $result['size_bytes'],
+            'content_base64' => base64_encode($result['content']),
+        ]);
+    }
+
+    private function hydrate_message(array $message)
+    {
+        $account = (new V24_SMH_Account_Repository())->find((int) $message['account_id']);
+        $folder = (new V24_SMH_Folder_Repository())->find((int) $message['folder_id']);
+        if (!$account || !$folder) {
+            return new WP_Error('message_not_found', 'Contesto messaggio non disponibile.', ['status' => 404]);
+        }
+
+        $payload = (new V24_SMH_IMAP_Client())->fetch_message_payload($account, $folder['full_name'], (int) $message['uid']);
+        if (is_wp_error($payload)) {
+            return $payload;
+        }
+
+        $repo = new V24_SMH_Mail_Repository();
+        $repo->save_body((int) $message['id'], $payload['body']);
+        $repo->replace_recipients((int) $message['id'], $payload['recipients'] ?? []);
+        (new V24_SMH_Attachment_Repository())->replace_for_message((int) $message['id'], (int) $message['account_id'], $payload['attachments'] ?? []);
+
+        return true;
+    }
+
+    private function message_context(int $message_id)
+    {
+        $message = (new V24_SMH_Mail_Repository())->find($message_id);
+        if (!$message || !V24_SMH_Permissions::current_user_can_account((int) $message['account_id'])) {
+            return new WP_Error('message_not_found', 'Messaggio non trovato.', ['status' => 404]);
+        }
+
+        $account = (new V24_SMH_Account_Repository())->find((int) $message['account_id']);
+        $folder = (new V24_SMH_Folder_Repository())->find((int) $message['folder_id']);
+        if (!$account || !$folder) {
+            return new WP_Error('message_not_found', 'Contesto messaggio non disponibile.', ['status' => 404]);
+        }
+
+        return [
+            'message' => $message,
+            'account' => $account,
+            'folder' => $folder,
+        ];
+    }
+
+    private function trash_folder_for_account(int $account_id): ?array
+    {
+        $folders = (new V24_SMH_Folder_Repository())->list_by_account($account_id);
+        foreach ($folders as $folder) {
+            if (($folder['special_use'] ?? '') === 'trash') {
+                return $folder;
+            }
+        }
+
+        return null;
+    }
+}

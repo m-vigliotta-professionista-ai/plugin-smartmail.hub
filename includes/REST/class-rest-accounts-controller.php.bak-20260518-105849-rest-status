@@ -1,0 +1,63 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_REST_Accounts_Controller
+{
+    public function register_routes(): void
+    {
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/accounts', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [$this, 'index'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_read_mail'),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [$this, 'create'],
+                'permission_callback' => static fn() => current_user_can('v24_smh_manage_accounts'),
+            ],
+        ]);
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/accounts/(?P<id>\d+)/test', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'test'],
+            'permission_callback' => static fn() => current_user_can('v24_smh_manage_accounts'),
+        ]);
+        register_rest_route(V24_SMH_REST_Bootstrap::NAMESPACE, '/accounts/(?P<id>\d+)/sync', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [$this, 'sync'],
+            'permission_callback' => static fn(WP_REST_Request $request) => V24_SMH_Permissions::current_user_can_account((int) $request['id']),
+        ]);
+    }
+
+    public function index(): WP_REST_Response
+    {
+        return V24_SMH_REST_Bootstrap::success((new V24_SMH_Account_Service())->list_visible());
+    }
+
+    public function create(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Account_Service())->create($request->get_json_params() ?: []);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function test(WP_REST_Request $request)
+    {
+        $result = (new V24_SMH_Account_Service())->test((int) $request['id']);
+        return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
+    }
+
+    public function sync(WP_REST_Request $request): WP_REST_Response
+    {
+        $result = (new V24_SMH_Mail_Sync_Service())->sync_account((int) $request['id']);
+        if (is_wp_error($result)) {
+            return $result;
+        }
+
+        return V24_SMH_REST_Bootstrap::success([
+            'status' => 'done',
+            'result' => $result,
+        ]);
+    }
+}

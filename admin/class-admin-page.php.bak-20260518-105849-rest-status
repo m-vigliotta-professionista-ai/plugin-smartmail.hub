@@ -1,0 +1,455 @@
+<?php
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+class V24_SMH_Admin_Page
+{
+    public static function register_hooks(): void
+    {
+        add_action('admin_menu', [self::class, 'register']);
+        add_action('admin_post_v24_smh_save_account', [self::class, 'handle_save_account']);
+        add_action('admin_post_v24_smh_test_account', [self::class, 'handle_test_account']);
+        add_action('admin_post_v24_smh_sync_account', [self::class, 'handle_sync_account']);
+        add_action('admin_post_v24_smh_save_settings', [self::class, 'handle_save_settings']);
+    }
+
+    public static function register(): void
+    {
+        add_menu_page(
+            'SmartMail Hub',
+            'SmartMail Hub',
+            'v24_smh_manage_settings',
+            'v24-smartmail-hub',
+            [self::class, 'render'],
+            'dashicons-email-alt2',
+            58
+        );
+    }
+
+    public static function render(): void
+    {
+        if (!current_user_can('v24_smh_manage_settings')) {
+            wp_die('Accesso non autorizzato.');
+        }
+
+        wp_enqueue_style('v24-smh-app');
+
+        $service = new V24_SMH_Account_Service();
+        $accounts = $service->list_visible();
+        $settings = self::settings();
+        $editing = null;
+        $edit_id = isset($_GET['edit_account']) ? (int) $_GET['edit_account'] : 0;
+
+        foreach ($accounts as $account) {
+            if ((int) ($account['id'] ?? 0) === $edit_id) {
+                $editing = $account;
+                break;
+            }
+        }
+
+        $recent_sync = self::recent_rows('sync_log');
+        $recent_audit = self::recent_rows('audit_log');
+        $notice = self::pull_notice();
+
+        echo '<div class="wrap v24-smh-admin">';
+        echo '<h1>Valore 24 AI Office - SmartMail Hub</h1>';
+        echo '<p>Configurazione account, sincronizzazione e stato operativo del plugin WordPress.</p>';
+
+        if ($notice) {
+            printf(
+                '<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+                esc_attr($notice['type']),
+                esc_html($notice['message'])
+            );
+        }
+
+        echo '<div class="v24-smh-admin-grid">';
+        echo '<section class="v24-smh-admin-card">';
+        echo '<h2>' . esc_html($editing ? 'Modifica account' : 'Nuovo account email') . '</h2>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="v24-smh-admin-form">';
+        wp_nonce_field('v24_smh_save_account');
+        echo '<input type="hidden" name="action" value="v24_smh_save_account">';
+        echo '<input type="hidden" name="account_id" value="' . esc_attr($editing['id'] ?? 0) . '">';
+
+        self::text_field('Etichetta account', 'label', $editing['label'] ?? '');
+        self::text_field('Email account', 'email_address', $editing['email_address'] ?? '');
+        self::text_field('Nome mittente', 'display_name', $editing['display_name'] ?? '');
+        self::text_field('Host IMAP', 'imap_host', $editing['imap_host'] ?? 'mail.aioffice24.it');
+        self::number_field('Porta IMAP', 'imap_port', $editing['imap_port'] ?? 993);
+        self::select_field('Crittografia IMAP', 'imap_encryption', $editing['imap_encryption'] ?? 'ssl_tls', [
+            'ssl_tls' => 'SSL/TLS',
+            'tls' => 'TLS',
+            'none' => 'Nessuna',
+        ]);
+        self::text_field('Host SMTP', 'smtp_host', $editing['smtp_host'] ?? 'mail.aioffice24.it');
+        self::number_field('Porta SMTP', 'smtp_port', $editing['smtp_port'] ?? 465);
+        self::select_field('Crittografia SMTP', 'smtp_encryption', $editing['smtp_encryption'] ?? 'ssl_tls', [
+            'ssl_tls' => 'SSL/TLS',
+            'tls' => 'TLS',
+            'none' => 'Nessuna',
+        ]);
+        self::text_field('Username', 'username', '');
+        self::password_field('Password o app password', 'secret');
+        self::select_field('Visibilita account', 'owner_type', $editing['owner_type'] ?? 'user', [
+            'user' => 'Solo utente corrente',
+            'shared' => 'Condiviso',
+        ]);
+
+        echo '<p class="description">Lascia vuoti username e password durante una modifica se vuoi mantenere le credenziali esistenti.</p>';
+        echo '<p><button type="submit" class="button button-primary">Salva account</button></p>';
+        echo '</form>';
+        echo '</section>';
+
+        echo '<section class="v24-smh-admin-card">';
+        echo '<h2>Impostazioni SmartMail Hub</h2>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="v24-smh-admin-form">';
+        wp_nonce_field('v24_smh_save_settings');
+        echo '<input type="hidden" name="action" value="v24_smh_save_settings">';
+        self::number_field('Intervallo sync (minuti)', 'sync_interval_minutes', $settings['sync_interval_minutes'] ?? 15);
+        self::number_field('Messaggi massimi per sync', 'max_messages_per_sync', $settings['max_messages_per_sync'] ?? 50);
+        self::number_field('Dimensione max allegati (MB)', 'max_attachment_size_mb', $settings['max_attachment_size_mb'] ?? 15);
+        self::number_field('Retention cache (giorni)', 'cache_retention_days', $settings['cache_retention_days'] ?? 90);
+        self::number_field('Retention log (giorni)', 'log_retention_days', $settings['log_retention_days'] ?? 180);
+        self::select_field('Trasporto invio', 'outbound_transport', $settings['outbound_transport'] ?? 'auto', [
+            'auto' => 'Auto: SMTP poi fallback WordPress',
+            'smtp' => 'Solo SMTP configurato',
+            'wp_mail' => 'WordPress/server locale',
+        ]);
+        self::checkbox_field('Abilita immagini remote', 'allow_remote_images', !empty($settings['allow_remote_images']));
+        self::checkbox_field('Abilita contatti', 'enable_contacts', !empty($settings['enable_contacts']));
+        self::checkbox_field('Abilita calendario', 'enable_calendar', !empty($settings['enable_calendar']));
+        self::checkbox_field('Abilita task', 'enable_tasks', !empty($settings['enable_tasks']));
+        self::checkbox_field('Abilita regole', 'enable_rules', !empty($settings['enable_rules']));
+        self::checkbox_field('Mantieni layer AI pronto', 'enable_ai_ready_layer', !empty($settings['enable_ai_ready_layer']));
+        self::checkbox_field('Abilita orchestrazione AI', 'ai_enabled', !empty($settings['ai_enabled']));
+        self::text_field('Endpoint AI predefinito', 'ai_endpoint_default', (string) ($settings['ai_endpoint_default'] ?? ''));
+        self::text_field('Endpoint AI tenant dedicato', 'ai_endpoint_tenant', (string) ($settings['ai_endpoint_tenant'] ?? ''));
+        self::text_field('Tenant abilitati (CSV)', 'ai_allowed_tenants', (string) ($settings['ai_allowed_tenants'] ?? ''));
+        self::text_field('Nome AI visualizzato', 'ai_display_name', (string) ($settings['ai_display_name'] ?? ''));
+        self::password_field('Token proxy AI', 'ai_proxy_token', false, (string) ($settings['ai_proxy_token'] ?? ''));
+        self::textarea_field('Profili branding tenant (JSON)', 'ai_branding_profiles', (string) ($settings['ai_branding_profiles'] ?? ''), 12);
+        echo '<p class="description">Su hosting che intercettano la porta SMTP in uscita, la modalita Auto tenta prima il server configurato e poi usa il mailer WordPress senza perdere la configurazione IMAP/SMTP dell account.</p>';
+        echo '<p class="description">L orchestratore AI usa endpoint WordPress REST esterni e sostituisce il vecchio proxy permissivo Roundcube con capability check, storage locale e branding multi-tenant.</p>';
+        echo '<p><button type="submit" class="button button-secondary">Salva impostazioni</button></p>';
+        echo '</form>';
+        echo '</section>';
+        echo '</div>';
+
+        echo '<section class="v24-smh-admin-card">';
+        echo '<h2>Account configurati</h2>';
+        echo '<table class="widefat striped">';
+        echo '<thead><tr><th>ID</th><th>Etichetta</th><th>Email</th><th>Stato</th><th>Visibilita</th><th>Ultima connessione</th><th>Azioni</th></tr></thead><tbody>';
+        if (!$accounts) {
+            echo '<tr><td colspan="7">Nessun account configurato.</td></tr>';
+        } else {
+            foreach ($accounts as $account) {
+                $edit_url = add_query_arg([
+                    'page' => 'v24-smartmail-hub',
+                    'edit_account' => (int) $account['id'],
+                ], admin_url('admin.php'));
+
+                $test_url = wp_nonce_url(
+                    add_query_arg([
+                        'action' => 'v24_smh_test_account',
+                        'account_id' => (int) $account['id'],
+                    ], admin_url('admin-post.php')),
+                    'v24_smh_test_account_' . (int) $account['id']
+                );
+
+                $sync_url = wp_nonce_url(
+                    add_query_arg([
+                        'action' => 'v24_smh_sync_account',
+                        'account_id' => (int) $account['id'],
+                    ], admin_url('admin-post.php')),
+                    'v24_smh_sync_account_' . (int) $account['id']
+                );
+
+                echo '<tr>';
+                echo '<td>' . esc_html($account['id']) . '</td>';
+                echo '<td>' . esc_html($account['label']) . '</td>';
+                echo '<td>' . esc_html($account['email_address']) . '</td>';
+                echo '<td>' . esc_html($account['status']) . '</td>';
+                echo '<td>' . esc_html($account['owner_type']) . '</td>';
+                echo '<td>' . esc_html($account['last_connected_at'] ?? '-') . '</td>';
+                echo '<td>';
+                echo '<a class="button button-small" href="' . esc_url($edit_url) . '">Modifica</a> ';
+                echo '<a class="button button-small" href="' . esc_url($test_url) . '">Test IMAP/SMTP</a> ';
+                echo '<a class="button button-small" href="' . esc_url($sync_url) . '">Sync ora</a>';
+                echo '</td>';
+                echo '</tr>';
+            }
+        }
+        echo '</tbody></table>';
+        echo '<p class="description">Per mostrare l interfaccia operativa sul frontend usa lo shortcode <code>[valore24_smartmail_hub]</code>.</p>';
+        echo '</section>';
+
+        echo '<div class="v24-smh-admin-grid">';
+        echo '<section class="v24-smh-admin-card">';
+        echo '<h2>Sync log recente</h2>';
+        self::render_log_table($recent_sync, ['created_at', 'status', 'sync_type', 'items_seen', 'items_created', 'items_updated', 'error_message']);
+        echo '</section>';
+        echo '<section class="v24-smh-admin-card">';
+        echo '<h2>Audit log recente</h2>';
+        self::render_log_table($recent_audit, ['created_at', 'event_type', 'user_id', 'account_id', 'entity_type', 'entity_id']);
+        echo '</section>';
+        echo '</div>';
+        echo '</div>';
+    }
+
+    public static function handle_save_account(): void
+    {
+        if (!current_user_can('v24_smh_manage_accounts')) {
+            wp_die('Accesso non autorizzato.');
+        }
+
+        check_admin_referer('v24_smh_save_account');
+        $result = (new V24_SMH_Account_Service())->save(wp_unslash($_POST));
+
+        if (is_wp_error($result)) {
+            self::push_notice('error', $result->get_error_message());
+        } else {
+            self::push_notice('success', 'Account salvato correttamente.');
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=v24-smartmail-hub'));
+        exit;
+    }
+
+    public static function handle_test_account(): void
+    {
+        if (!current_user_can('v24_smh_manage_accounts')) {
+            wp_die('Accesso non autorizzato.');
+        }
+
+        $account_id = isset($_GET['account_id']) ? (int) $_GET['account_id'] : 0;
+        check_admin_referer('v24_smh_test_account_' . $account_id);
+
+        $result = (new V24_SMH_Account_Service())->test($account_id);
+        if (is_wp_error($result)) {
+            self::push_notice('error', $result->get_error_message());
+        } elseif (($result['transport'] ?? 'smtp') === 'wp_mail') {
+            self::push_notice('success', 'Test completato: IMAP ok, invio operativo tramite WordPress/server locale.');
+        } else {
+            self::push_notice('success', 'Test IMAP/SMTP completato con successo.');
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=v24-smartmail-hub'));
+        exit;
+    }
+
+    public static function handle_sync_account(): void
+    {
+        if (!current_user_can('v24_smh_manage_accounts')) {
+            wp_die('Accesso non autorizzato.');
+        }
+
+        $account_id = isset($_GET['account_id']) ? (int) $_GET['account_id'] : 0;
+        check_admin_referer('v24_smh_sync_account_' . $account_id);
+
+        $result = (new V24_SMH_Mail_Sync_Service())->sync_account($account_id);
+        if (is_wp_error($result)) {
+            self::push_notice('error', $result->get_error_message());
+        } else {
+            self::push_notice('success', 'Sincronizzazione completata.');
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=v24-smartmail-hub'));
+        exit;
+    }
+
+    public static function handle_save_settings(): void
+    {
+        if (!current_user_can('v24_smh_manage_settings')) {
+            wp_die('Accesso non autorizzato.');
+        }
+
+        check_admin_referer('v24_smh_save_settings');
+        $post = wp_unslash($_POST);
+
+        $settings = [
+            'sync_interval_minutes' => self::bounded_int($post['sync_interval_minutes'] ?? 15, 5, 1440),
+            'max_messages_per_sync' => self::bounded_int($post['max_messages_per_sync'] ?? 50, 1, 500),
+            'max_attachment_size_mb' => self::bounded_int($post['max_attachment_size_mb'] ?? 15, 1, 100),
+            'cache_retention_days' => self::bounded_int($post['cache_retention_days'] ?? 90, 1, 3650),
+            'log_retention_days' => self::bounded_int($post['log_retention_days'] ?? 180, 1, 3650),
+            'outbound_transport' => self::sanitize_transport((string) ($post['outbound_transport'] ?? 'auto')),
+            'allow_remote_images' => !empty($post['allow_remote_images']),
+            'enable_contacts' => !empty($post['enable_contacts']),
+            'enable_calendar' => !empty($post['enable_calendar']),
+            'enable_tasks' => !empty($post['enable_tasks']),
+            'enable_rules' => !empty($post['enable_rules']),
+            'enable_ai_ready_layer' => !empty($post['enable_ai_ready_layer']),
+            'ai_enabled' => !empty($post['ai_enabled']),
+            'ai_endpoint_default' => esc_url_raw((string) ($post['ai_endpoint_default'] ?? '')),
+            'ai_endpoint_tenant' => esc_url_raw((string) ($post['ai_endpoint_tenant'] ?? '')),
+            'ai_allowed_tenants' => sanitize_text_field((string) ($post['ai_allowed_tenants'] ?? '')),
+            'ai_display_name' => sanitize_text_field((string) ($post['ai_display_name'] ?? 'Secure E-mail AI')),
+            'ai_proxy_token' => sanitize_text_field((string) ($post['ai_proxy_token'] ?? '')),
+            'ai_branding_profiles' => self::sanitize_json_text((string) ($post['ai_branding_profiles'] ?? '')),
+        ];
+
+        update_option('v24_smh_settings', wp_parse_args($settings, self::default_settings()), false);
+        if (class_exists('V24_SMH_Cron')) {
+            V24_SMH_Cron::ensure_scheduled();
+        }
+        self::push_notice('success', 'Impostazioni salvate.');
+
+        wp_safe_redirect(admin_url('admin.php?page=v24-smartmail-hub'));
+        exit;
+    }
+
+    private static function recent_rows(string $suffix): array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . V24_SMH_TABLE_PREFIX . $suffix;
+        return $wpdb->get_results("SELECT * FROM {$table} ORDER BY id DESC LIMIT 10", ARRAY_A);
+    }
+
+    private static function render_log_table(array $rows, array $columns): void
+    {
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ($columns as $column) {
+            echo '<th>' . esc_html($column) . '</th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        if (!$rows) {
+            echo '<tr><td colspan="' . esc_attr((string) count($columns)) . '">Nessun dato disponibile.</td></tr>';
+        } else {
+            foreach ($rows as $row) {
+                echo '<tr>';
+                foreach ($columns as $column) {
+                    $value = $row[$column] ?? '';
+                    echo '<td>' . esc_html(is_scalar($value) ? (string) $value : wp_json_encode($value)) . '</td>';
+                }
+                echo '</tr>';
+            }
+        }
+
+        echo '</tbody></table>';
+    }
+
+    private static function text_field(string $label, string $name, string $value): void
+    {
+        echo '<label><span>' . esc_html($label) . '</span>';
+        echo '<input type="text" class="regular-text" name="' . esc_attr($name) . '" value="' . esc_attr($value) . '"></label>';
+    }
+
+    private static function password_field(string $label, string $name, bool $always_blank = true, string $value = ''): void
+    {
+        echo '<label><span>' . esc_html($label) . '</span>';
+        echo '<input type="password" class="regular-text" name="' . esc_attr($name) . '" value="' . esc_attr($always_blank ? '' : $value) . '" autocomplete="off"></label>';
+    }
+
+    private static function number_field(string $label, string $name, $value): void
+    {
+        echo '<label><span>' . esc_html($label) . '</span>';
+        echo '<input type="number" class="small-text" name="' . esc_attr($name) . '" value="' . esc_attr((string) $value) . '"></label>';
+    }
+
+    private static function select_field(string $label, string $name, string $value, array $options): void
+    {
+        echo '<label><span>' . esc_html($label) . '</span>';
+        echo '<select name="' . esc_attr($name) . '">';
+        foreach ($options as $option_value => $option_label) {
+            printf(
+                '<option value="%1$s" %2$s>%3$s</option>',
+                esc_attr($option_value),
+                selected($value, $option_value, false),
+                esc_html($option_label)
+            );
+        }
+        echo '</select></label>';
+    }
+
+    private static function checkbox_field(string $label, string $name, bool $checked): void
+    {
+        echo '<label class="v24-smh-checkbox">';
+        echo '<input type="checkbox" name="' . esc_attr($name) . '" value="1" ' . checked($checked, true, false) . '>';
+        echo '<span>' . esc_html($label) . '</span>';
+        echo '</label>';
+    }
+
+    private static function textarea_field(string $label, string $name, string $value, int $rows = 6): void
+    {
+        echo '<label><span>' . esc_html($label) . '</span>';
+        echo '<textarea name="' . esc_attr($name) . '" rows="' . esc_attr((string) $rows) . '">' . esc_textarea($value) . '</textarea></label>';
+    }
+
+    private static function push_notice(string $type, string $message): void
+    {
+        set_transient(
+            'v24_smh_notice_' . get_current_user_id(),
+            ['type' => $type === 'error' ? 'error' : 'success', 'message' => $message],
+            MINUTE_IN_SECONDS * 5
+        );
+    }
+
+    private static function pull_notice(): ?array
+    {
+        $key = 'v24_smh_notice_' . get_current_user_id();
+        $notice = get_transient($key);
+        if ($notice) {
+            delete_transient($key);
+        }
+        return is_array($notice) ? $notice : null;
+    }
+
+    private static function settings(): array
+    {
+        $settings = get_option('v24_smh_settings', []);
+        return wp_parse_args(is_array($settings) ? $settings : [], self::default_settings());
+    }
+
+    private static function default_settings(): array
+    {
+        return [
+            'sync_interval_minutes' => 15,
+            'max_messages_per_sync' => 50,
+            'max_attachment_size_mb' => 15,
+            'cache_retention_days' => 90,
+            'log_retention_days' => 180,
+            'outbound_transport' => 'auto',
+            'allow_remote_images' => false,
+            'enable_contacts' => true,
+            'enable_calendar' => true,
+            'enable_tasks' => true,
+            'enable_rules' => true,
+            'enable_ai_ready_layer' => true,
+            'ai_enabled' => true,
+            'ai_proxy_token' => '',
+            'ai_endpoint_default' => 'https://secureserverai.professionista-ai.com/wp-json/proff_ai/v1/',
+            'ai_endpoint_tenant' => 'https://securserveraioffice.valore24.ilsole24ore.com/wp-json/proff_ai/v1/',
+            'ai_allowed_tenants' => implode(',', V24_SMH_AI_Tenant_Resolver::default_allowed_tenants()),
+            'ai_display_name' => 'Secure E-mail AI',
+            'ai_branding_profiles' => V24_SMH_AI_Tenant_Resolver::default_profiles_json(),
+        ];
+    }
+
+    private static function sanitize_transport(string $transport): string
+    {
+        $transport = sanitize_key($transport);
+        return in_array($transport, ['auto', 'smtp', 'wp_mail'], true) ? $transport : 'auto';
+    }
+
+    private static function bounded_int($value, int $min, int $max): int
+    {
+        return min($max, max($min, (int) $value));
+    }
+
+    private static function sanitize_json_text(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return V24_SMH_AI_Tenant_Resolver::default_profiles_json();
+        }
+
+        $decoded = json_decode($value, true);
+        if (!is_array($decoded)) {
+            return V24_SMH_AI_Tenant_Resolver::default_profiles_json();
+        }
+
+        return wp_json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    }
+}

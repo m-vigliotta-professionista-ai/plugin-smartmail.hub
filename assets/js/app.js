@@ -54,6 +54,7 @@
         initialAccountId: Number(initialRoute.get('smh_account') || 0),
         initialFolderId: Number(initialRoute.get('smh_folder') || 0),
         previewMessageId: null,
+        mobileMailReaderOpen: false,
         folderContextId: null,
         recordContext: {
             kind: '',
@@ -188,6 +189,24 @@
 
     function dispatchBridgeEvent(name, detail = {}) {
         app.dispatchEvent(new CustomEvent(name, { detail }));
+    }
+
+    function syncMobileMailReaderState() {
+        const shouldOpen = Boolean(
+            state.mobileMailReaderOpen
+            && state.module === 'mail'
+            && state.currentMessage
+        );
+        app.classList.toggle('v24-smh-mobile-mail-reader-open', shouldOpen);
+    }
+
+    function closeMobileMailReader() {
+        state.mobileMailReaderOpen = false;
+        state.currentMessage = null;
+        state.previewMessageId = null;
+        highlightSelection(region('messages'), 'data-message-id', '');
+        region('reader').innerHTML = '<p>Seleziona un messaggio per leggerlo.</p>';
+        syncMobileMailReaderState();
     }
 
     applyTheme(readThemePreference(), { persistLocal: false });
@@ -1866,6 +1885,9 @@
 
     function setActiveModule(module) {
         state.module = module;
+        if (module !== 'mail') {
+            state.mobileMailReaderOpen = false;
+        }
         closeRecordContextMenu();
 
         app.querySelectorAll('[data-module-panel]').forEach((panel) => {
@@ -1875,6 +1897,8 @@
         app.querySelectorAll('[data-module]').forEach((button) => {
             button.classList.toggle('is-active', button.getAttribute('data-module') === module);
         });
+
+        syncMobileMailReaderState();
 
         if (module === 'contacts') {
             loadContacts().catch((error) => setStatus(error.message || 'Caricamento contatti non riuscito.'));
@@ -1959,6 +1983,7 @@
         state.folderId = null;
         state.messages = [];
         state.currentMessage = null;
+        state.mobileMailReaderOpen = false;
         state.folderContextId = null;
         state.messageContextId = null;
         dispatchBridgeEvent('v24-smh-account-selected', { accountId: id });
@@ -1982,6 +2007,7 @@
             updateMailListHeader(0);
             region('messages').innerHTML = '<p>Nessuna cartella sincronizzata.</p>';
             region('reader').innerHTML = '<p>Avvia una sincronizzazione per popolare le cartelle.</p>';
+            syncMobileMailReaderState();
             syncFolderRoute();
             setStatus('Account pronto.');
         }
@@ -2035,6 +2061,7 @@
         state.folderId = id;
         state.messages = [];
         state.currentMessage = null;
+        state.mobileMailReaderOpen = false;
         closeFolderContextMenu();
         closeMessageContextMenu();
         dispatchBridgeEvent('v24-smh-folder-selected', { accountId: state.accountId, folderId: id });
@@ -2532,7 +2559,9 @@
         const movedCurrent = state.currentMessage && Number(state.currentMessage.id) === Number(messageId);
         if (movedCurrent) {
             state.currentMessage = null;
+            state.mobileMailReaderOpen = false;
             region('reader').innerHTML = `<p>${escapeHtml(options.readerMessage || 'Messaggio spostato.')}</p>`;
+            syncMobileMailReaderState();
         }
 
         if (result.data && result.data.requires_sync) {
@@ -2556,7 +2585,9 @@
 
         if (state.currentMessage && Number(state.currentMessage.id) === Number(messageId)) {
             state.currentMessage = null;
+            state.mobileMailReaderOpen = false;
             region('reader').innerHTML = '<p>Messaggio eliminato.</p>';
+            syncMobileMailReaderState();
         }
 
         if (result.data && result.data.requires_sync) {
@@ -3219,9 +3250,11 @@
         target.classList.toggle('is-empty', !messages.length);
 
         if (!messages.length) {
+            state.mobileMailReaderOpen = false;
             closeMessageContextMenu();
             target.innerHTML = '<p>Nessun messaggio trovato.</p>';
             region('reader').innerHTML = '<p>La cartella e vuota o il filtro non ha restituito risultati.</p>';
+            syncMobileMailReaderState();
             setStatus('Nessun messaggio.');
             return;
         }
@@ -3303,8 +3336,10 @@
         const result = await api(`/mail/messages/${id}`);
         state.currentMessage = result.data;
         state.previewMessageId = null;
+        state.mobileMailReaderOpen = true;
         highlightSelection(region('messages'), 'data-message-id', id);
         renderMessage(state.currentMessage, { preview: false });
+        syncMobileMailReaderState();
         dispatchBridgeEvent('v24-smh-message-selected', {
             accountId: state.accountId,
             folderId: state.folderId,
@@ -3318,6 +3353,9 @@
         const body = normalizeMessageBodyHtml(message.body_html, message.body_plain);
         const movableFolders = state.folders.filter((folder) => Number(folder.id) !== Number(message.folder_id));
         const attachments = message.attachments || [];
+        const mobileCloseButton = isPreview ? '' : `
+            <button type="button" class="v24-smh-button v24-smh-reader-mobile-close" data-action="close-message-reader">Torna ai messaggi</button>
+        `;
         const statusTags = [
             `<span>${message.is_seen ? 'Letto' : 'Non letto'}</span>`,
             `<span>${message.is_flagged ? 'Contrassegnato' : 'Normale'}</span>`,
@@ -3355,6 +3393,7 @@
             <article class="v24-smh-reader-shell">
                 <div class="v24-smh-reader-header">
                     <div class="v24-smh-reader-summary">
+                        ${mobileCloseButton}
                         <span class="v24-smh-reader-kicker">${isPreview ? 'Ultimo messaggio ricevuto' : 'Messaggio aperto'}</span>
                         <div class="v24-smh-reader-title-block">
                             <h2>${escapeHtml(message.subject || '(Senza oggetto)')}</h2>
@@ -5232,6 +5271,7 @@
         closeFolderContextMenu();
         closeMessageContextMenu();
         closeRecordContextMenu();
+        syncMobileMailReaderState();
     });
 
     app.addEventListener('click', async (event) => {
@@ -5281,6 +5321,8 @@
                 await sync();
             } else if (action === 'compose') {
                 openCompose('new');
+            } else if (action === 'close-message-reader') {
+                closeMobileMailReader();
             } else if (action === 'close-compose') {
                 closeCompose();
             } else if (action === 'search') {

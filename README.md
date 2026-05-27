@@ -159,6 +159,84 @@ In molti casi DDEV espone anche la variante HTTPS:
 https://smartmail-hub-local.ddev.site/smartmail-hub/
 ```
 
+### Prerequisito per collegare account IMAP reali
+
+Il plugin usa l'estensione PHP IMAP. Nel clone locale DDEV va quindi abilitato il modulo `imap` nel container web.
+
+Questo progetto e gia predisposto con:
+
+```yaml
+webimage_extra_packages: ["php8.1-imap"]
+```
+
+Se aggiorni o ricrei l'ambiente, esegui:
+
+```powershell
+cd "C:\Users\MicheleVigliotta\Desktop\Projects\plugin-smartmail-hub\local-wp"
+ddev restart
+```
+
+Per verificare che il modulo sia attivo:
+
+```powershell
+ddev exec php -m | findstr /I imap
+```
+
+### Collegare una casella IMAP di test al plugin locale
+
+Se hai gia una mailbox IMAP che puoi usare, non serve toccare staging. Devi solo configurarla nel backend locale del plugin.
+
+Backend locale:
+
+```text
+https://smartmail-hub-local.ddev.site/wp-admin/admin.php?page=v24-smartmail-hub
+```
+
+Compila il form `Nuovo account email` con questi dati:
+
+- `Etichetta account`: nome libero, per esempio `Test Gmail` o `Inbox Demo`
+- `Email account`: la casella completa
+- `Nome mittente`: nome visualizzato in uscita
+- `Host IMAP`: host del provider IMAP
+- `Porta IMAP`: di solito `993`
+- `Crittografia IMAP`: di solito `SSL/TLS`
+- `Host SMTP`: host SMTP del provider, oppure comunque il valore del provider se vuoi tenere anche l'invio reale
+- `Porta SMTP`: di solito `465` o `587`
+- `Crittografia SMTP`: di solito `SSL/TLS` su `465`, `TLS` su `587`
+- `Username`: quasi sempre l'email completa
+- `Password o app password`: password casella o app password
+- `Visibilita account`: `Solo utente corrente` o `Condiviso`
+
+Poi fai:
+
+1. `Salva account`
+2. `Test IMAP/SMTP`
+3. `Sync ora`
+4. apri `https://smartmail-hub-local.ddev.site/smartmail-hub/`
+
+### Modalita consigliata per test UI senza inviare email reali
+
+Se vuoi leggere e sincronizzare una casella reale ma non vuoi spedire email vere dal locale:
+
+1. vai sempre nella pagina admin del plugin locale
+2. in `Impostazioni SmartMail Hub`
+3. imposta `Trasporto invio` su `WordPress/server locale`
+4. salva
+
+In questa modalita:
+
+- IMAP continua a servire per leggere e sincronizzare la mailbox
+- l'invio dal composer passa da WordPress locale
+- le mail in uscita finiscono in Mailpit, non verso destinatari reali
+
+Mailpit locale:
+
+```text
+https://smartmail-hub-local.ddev.site:8026
+```
+
+Questa e la modalita piu sicura per lavorare sulla UI e testare il composer.
+
 Opzioni utili:
 
 ```powershell

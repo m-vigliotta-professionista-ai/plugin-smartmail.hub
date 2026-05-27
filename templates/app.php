@@ -52,7 +52,7 @@
                 <span class="v24-smh-user">Utente: <?php echo esc_html(wp_get_current_user()->display_name ?: wp_get_current_user()->user_login); ?></span>
                 <span class="v24-smh-status" data-region="status">Pronto.</span>
             </div>
-            <a class="v24-smh-button" href="<?php echo esc_url(wp_logout_url(get_permalink() ?: home_url('/'))); ?>">Esci</a>
+            <a class="v24-smh-button" id="esci-button" href="<?php echo esc_url(wp_logout_url(get_permalink() ?: home_url('/'))); ?>">Esci</a>
         </div>
     </header>
 

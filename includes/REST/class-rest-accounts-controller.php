@@ -55,7 +55,7 @@ class V24_SMH_REST_Accounts_Controller
         return is_wp_error($result) ? $result : V24_SMH_REST_Bootstrap::success($result);
     }
 
-    public function sync(WP_REST_Request $request): WP_REST_Response
+    public function sync(WP_REST_Request $request)
     {
         $result = (new V24_SMH_Mail_Sync_Service())->sync_account((int) $request['id']);
         if (is_wp_error($result)) {

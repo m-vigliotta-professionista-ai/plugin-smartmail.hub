@@ -1073,6 +1073,13 @@ html[data-v24-smh-theme="light"] .v24-smh-auth-shell {
     min-width: 0;
 }
 
+.v24-smh-reader-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
 .v24-smh-reader-mobile-close {
     display: none;
 }
@@ -2812,13 +2819,20 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
         display: flex !important;
         flex-wrap: nowrap !important;
         justify-content: flex-start !important;
+        align-items: center;
         width: 100% !important;
         gap: 8px !important;
         overflow-x: auto;
         overflow-y: hidden;
-        padding-bottom: 4px;
+        padding-bottom: 6px;
+        padding-left: 5px;
         -webkit-overflow-scrolling: touch;
-        scrollbar-width: thin;
+        scrollbar-width: none;
+        min-height: 46px;
+    }
+
+    .v24-smh-module-nav::-webkit-scrollbar {
+        display: none;
     }
 
     .v24-smh-theme-toggle {
@@ -2955,11 +2969,18 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
 
     .v24-smh-module[data-module-panel="mail"] .v24-smh-reader-mobile-close {
         display: inline-flex;
-        align-self: flex-start;
-        margin-bottom: 12px;
+        align-items: center;
+        justify-content: center;
         padding: 8px 12px;
         min-height: 36px;
         font-size: 12px;
+        line-height: 1;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-reader-kicker {
+        min-height: 36px;
+        padding: 8px 12px;
+        line-height: 1;
     }
 
     .v24-smh-auth-card,
@@ -3111,6 +3132,16 @@ html[data-v24-smh-theme="light"] body:has(.v24-smh-auth-shell) {
     }
     
     #esci-button {
+        display: none;
+    }
+
+    .v24-smh-module[data-module-panel="mail"] .v24-smh-reader-mobile-close {
+        display: inline-flex;
+        align-self: center;
+        margin-bottom: 12px;
+        padding: 6px 10px;
+        min-height: 28px;
+        font-size: 10px;
         display: none;
     }
 }

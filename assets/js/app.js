@@ -3598,8 +3598,10 @@
             <article class="v24-smh-reader-shell" data-message-id="${Number(message.id)}">
                 <div class="v24-smh-reader-header">
                     <div class="v24-smh-reader-summary">
-                        ${mobileCloseButton}
-                        <span class="v24-smh-reader-kicker">${isPreview ? 'Ultimo messaggio ricevuto' : 'Messaggio aperto'}</span>
+                        <div class="v24-smh-reader-topbar">
+                            ${mobileCloseButton}
+                            <span class="v24-smh-reader-kicker">${isPreview ? 'Ultimo messaggio ricevuto' : 'Messaggio aperto'}</span>
+                        </div>
                         <div class="v24-smh-reader-title-block">
                             <h2>${escapeHtml(message.subject || '(Senza oggetto)')}</h2>
                         </div>

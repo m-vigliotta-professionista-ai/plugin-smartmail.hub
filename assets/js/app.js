@@ -68,6 +68,7 @@
     };
 
     const apiRoot = config.root.replace(/\/$/, '');
+    const inlineAttachmentCache = new Map();
     const region = (name) => app.querySelector(`[data-region="${name}"]`);
     const composeField = (name) => app.querySelector(`[data-field="${name}"]`);
     const composeWrapper = (name) => app.querySelector(`[data-compose-field="${name}"]`);
@@ -237,24 +238,191 @@
         }[char]));
     }
 
-    function normalizeMessageBodyHtml(html, plainText) {
+    function normalizeMessageBodyHtml(message) {
+        const html = message && message.body_html ? message.body_html : '';
+        const plainText = message && message.body_plain ? message.body_plain : '';
+        const attachments = Array.isArray(message && message.attachments) ? message.attachments : [];
+
         if (!html) {
             return `<div class="v24-smh-body-content"><pre>${escapeHtml(plainText || '')}</pre></div>`;
         }
 
-        return `<div class="v24-smh-body-content">${sanitizeMessageBodyHtml(html)}</div>`;
+        const sanitized = sanitizeMessageBodyHtml(html, attachments);
+        if (!sanitized) {
+            return `<div class="v24-smh-body-content"><pre>${escapeHtml(plainText || '')}</pre></div>`;
+        }
+
+        return `<div class="v24-smh-body-content">${sanitized}</div>`;
     }
 
-    function sanitizeMessageBodyHtml(html) {
-        return String(html || '')
+    function normalizeInlineAttachmentRef(value) {
+        return String(value || '')
+            .trim()
+            .replace(/^cid:/i, '')
+            .replace(/[<>]/g, '')
+            .trim();
+    }
+
+    function normalizeEmailInlineStyle(style) {
+        const cleaned = String(style || '')
+            .replace(/\bmso-[^:;]+:[^;]+;?/gi, '')
+            .replace(/\bbackground(?:-color)?\s*:\s*(?:white|#fff(?:fff)?|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))\s*;?/gi, '')
+            .replace(/\bcolor\s*:\s*(?:black|#000(?:000)?|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))\s*;?/gi, '')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+
+        return cleaned.replace(/^\s*;\s*|\s*;\s*$/g, '').trim();
+    }
+
+    function looksLikeOrphanedCss(text) {
+        const compact = String(text || '').replace(/\s+/g, ' ').trim();
+        return /^[@.#a-z][^{}]{0,160}\{[^{}]{1,260}\}$/i.test(compact) || /^P\s*\{[^{}]+\}$/i.test(compact);
+    }
+
+    function looksLikeBrokenSymbolOnly(text) {
+        const compact = String(text || '').replace(/\s+/g, '').trim();
+        return compact !== '' && /^[�"'“”„‚`´.,:;|/\\\-+_=<>()[\]{}]+$/u.test(compact);
+    }
+
+    function sanitizeMessageBodyHtml(html, attachments = []) {
+        const template = document.createElement('template');
+        template.innerHTML = String(html || '')
             .replace(/<!--[\s\S]*?-->/g, '')
-            .replace(/<\/?o:[^>]+>/gi, '')
+            .replace(/<\/?o:[^>]+>/gi, '');
+
+        const inlineAttachmentMap = new Map(
+            (attachments || [])
+                .filter((attachment) => Number(attachment.is_inline) === 1 && attachment.content_id)
+                .map((attachment) => [normalizeInlineAttachmentRef(attachment.content_id), attachment])
+        );
+
+        const textWalker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+        const textNodesToRemove = [];
+        while (textWalker.nextNode()) {
+            const node = textWalker.currentNode;
+            const value = node && node.nodeValue ? node.nodeValue : '';
+            if (looksLikeOrphanedCss(value)) {
+                textNodesToRemove.push(node);
+            }
+        }
+        textNodesToRemove.forEach((node) => node.parentNode && node.parentNode.removeChild(node));
+
+        template.content.querySelectorAll('[style]').forEach((element) => {
+            const cleanedStyle = normalizeEmailInlineStyle(element.getAttribute('style'));
+            if (cleanedStyle) {
+                element.setAttribute('style', cleanedStyle);
+            } else {
+                element.removeAttribute('style');
+            }
+        });
+
+        template.content.querySelectorAll('img').forEach((img) => {
+            const rawSrc = String(img.getAttribute('src') || '').trim();
+            const normalizedSrc = normalizeInlineAttachmentRef(rawSrc);
+            const inlineAttachment = inlineAttachmentMap.get(normalizedSrc);
+
+            if (inlineAttachment) {
+                img.setAttribute('data-inline-attachment-id', String(inlineAttachment.id));
+                img.setAttribute('data-inline-content-id', normalizedSrc);
+                img.classList.add('v24-smh-inline-attachment', 'is-loading');
+                img.removeAttribute('src');
+                return;
+            }
+
+            if (!/^(https?:|data:|blob:|\/)/i.test(rawSrc)) {
+                img.remove();
+            }
+        });
+
+        template.content.querySelectorAll('[style*="FluentSystemIcons" i], [style*="fluentsystemicons" i]').forEach((element) => {
+            if (looksLikeBrokenSymbolOnly(element.textContent || '')) {
+                element.remove();
+            }
+        });
+
+        template.content.querySelectorAll('p, div, span').forEach((element) => {
+            const hasRichChildren = Boolean(element.querySelector('img, table, a, br, hr'));
+            if (hasRichChildren) {
+                return;
+            }
+
+            const text = String(element.textContent || '');
+            if (looksLikeBrokenSymbolOnly(text) || text.replace(/\s+/g, '').trim() === '') {
+                element.remove();
+            }
+        });
+
+        const cleanedHtml = template.innerHTML
             .replace(/<p[^>]*class=["'][^"']*MsoNormal[^"']*["'][^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/p>/gi, '')
             .replace(/(<div[^>]*class=["'][^"']*WordSection[^"']*["'][^>]*>)(?:\s*<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>)+/gi, '$1')
             .replace(/(?:<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>\s*)+(<\/div>\s*)$/gi, '$1')
             .replace(/^(?:\s*<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>)+/gi, '')
             .replace(/(?:<(?:p|div)[^>]*>(?:\s|&nbsp;|&#160;|<br\s*\/?>)*<\/(?:p|div)>\s*)+$/gi, '')
             .trim();
+
+        return cleanedHtml;
+    }
+
+    async function resolveInlineAttachmentUrl(attachmentId) {
+        const cacheKey = String(attachmentId || '');
+        if (!cacheKey) {
+            return '';
+        }
+
+        if (!inlineAttachmentCache.has(cacheKey)) {
+            inlineAttachmentCache.set(cacheKey, api(`/mail/attachments/${cacheKey}`).then((result) => {
+                const payload = result && result.data ? result.data : {};
+                if (!payload.content_base64) {
+                    return '';
+                }
+
+                return `data:${payload.mime_type || 'application/octet-stream'};base64,${payload.content_base64}`;
+            }).catch((error) => {
+                inlineAttachmentCache.delete(cacheKey);
+                throw error;
+            }));
+        }
+
+        return inlineAttachmentCache.get(cacheKey);
+    }
+
+    async function hydrateInlineAttachmentImages(message) {
+        const reader = region('reader');
+        const currentArticle = reader ? reader.querySelector(`[data-message-id="${Number(message && message.id)}"]`) : null;
+        if (!reader || !currentArticle || !message) {
+            return;
+        }
+
+        const inlineImages = Array.from(currentArticle.querySelectorAll('img[data-inline-attachment-id]'));
+        if (!inlineImages.length) {
+            return;
+        }
+
+        for (const image of inlineImages) {
+            const attachmentId = image.getAttribute('data-inline-attachment-id');
+            if (!attachmentId) {
+                image.remove();
+                continue;
+            }
+
+            try {
+                const dataUrl = await resolveInlineAttachmentUrl(attachmentId);
+                if (!dataUrl) {
+                    image.remove();
+                    continue;
+                }
+
+                const latestArticle = reader.querySelector(`[data-message-id="${Number(message.id)}"]`);
+                if (!latestArticle || !latestArticle.contains(image)) {
+                    return;
+                }
+
+                image.setAttribute('src', dataUrl);
+                image.classList.remove('is-loading');
+            } catch (error) {
+                image.remove();
+            }
+        }
     }
 
     function safeJson(value, fallback = []) {
@@ -3375,16 +3543,17 @@
 
     function renderMessage(message, options = {}) {
         const isPreview = Boolean(options.preview);
-        const body = normalizeMessageBodyHtml(message.body_html, message.body_plain);
+        const body = normalizeMessageBodyHtml(message);
         const movableFolders = state.folders.filter((folder) => Number(folder.id) !== Number(message.folder_id));
-        const attachments = message.attachments || [];
+        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+        const downloadableAttachments = attachments.filter((attachment) => Number(attachment.is_inline) !== 1);
         const mobileCloseButton = isPreview ? '' : `
             <button type="button" class="v24-smh-button v24-smh-reader-mobile-close" data-action="close-message-reader">Torna ai messaggi</button>
         `;
         const statusTags = [
             `<span>${message.is_seen ? 'Letto' : 'Non letto'}</span>`,
             `<span>${message.is_flagged ? 'Contrassegnato' : 'Normale'}</span>`,
-            attachments.length ? `<span>${attachments.length} allegat${attachments.length === 1 ? 'o' : 'i'}</span>` : ''
+            downloadableAttachments.length ? `<span>${downloadableAttachments.length} allegat${downloadableAttachments.length === 1 ? 'o' : 'i'}</span>` : ''
         ].filter(Boolean).join('');
         const movePanel = movableFolders.length ? `
             <div class="v24-smh-inline-action v24-smh-reader-move">
@@ -3401,7 +3570,7 @@
             </div>
         ` : `
             <div class="v24-smh-reader-actions-shell">
-                <div class="v24-smh-reader-actions">
+                <div class="v24-smh-reader-actions v24-smh-reader-actions-scroll">
                     <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="reply">Rispondi</button>
                     <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="reply-all">Rispondi a tutti</button>
                     <button type="button" class="v24-smh-reader-button v24-smh-reader-button-main" data-action="forward">Inoltra</button>
@@ -3413,9 +3582,20 @@
                 </div>
             </div>
         `;
+        const attachmentsPanel = downloadableAttachments.length ? `
+                <section class="v24-smh-reader-panel v24-smh-reader-panel-attachments">
+                    <div class="v24-smh-reader-panel-head">
+                        <strong>Allegati</strong>
+                        <span>${downloadableAttachments.length} file</span>
+                    </div>
+                    <div class="v24-smh-attachments">
+                        ${renderAttachments(downloadableAttachments)}
+                    </div>
+                </section>
+        ` : '';
 
         region('reader').innerHTML = `
-            <article class="v24-smh-reader-shell">
+            <article class="v24-smh-reader-shell" data-message-id="${Number(message.id)}">
                 <div class="v24-smh-reader-header">
                     <div class="v24-smh-reader-summary">
                         ${mobileCloseButton}
@@ -3440,17 +3620,11 @@
                     </div>
                     <div class="v24-smh-body">${body}</div>
                 </section>
-                <section class="v24-smh-reader-panel v24-smh-reader-panel-attachments">
-                    <div class="v24-smh-reader-panel-head">
-                        <strong>Allegati</strong>
-                        <span>${attachments.length} file</span>
-                    </div>
-                    <div class="v24-smh-attachments">
-                        ${renderAttachments(attachments)}
-                    </div>
-                </section>
+                ${attachmentsPanel}
             </article>
         `;
+
+        void hydrateInlineAttachmentImages(message);
     }
 
     function openCompose(mode) {

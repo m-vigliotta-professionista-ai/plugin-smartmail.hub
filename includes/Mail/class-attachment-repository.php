@@ -42,7 +42,7 @@ class V24_SMH_Attachment_Repository
         global $wpdb;
         return $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, message_id, part_id, filename, mime_type, size_bytes, is_inline, downloaded FROM {$this->table()} WHERE message_id = %d ORDER BY id ASC",
+                "SELECT id, message_id, part_id, filename, mime_type, size_bytes, content_id, is_inline, downloaded FROM {$this->table()} WHERE message_id = %d ORDER BY id ASC",
                 $message_id
             ),
             ARRAY_A

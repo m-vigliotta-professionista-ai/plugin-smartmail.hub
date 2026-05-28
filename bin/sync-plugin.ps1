@@ -1,10 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$RepoRoot = (Split-Path -Path $PSScriptRoot -Parent)
+    [string]$RepoRoot = ""
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if ($RepoRoot -eq "") {
+    $scriptRoot = if ($PSScriptRoot) {
+        $PSScriptRoot
+    } else {
+        Split-Path -Path $MyInvocation.MyCommand.Path -Parent
+    }
+    $RepoRoot = Split-Path -Path $scriptRoot -Parent
+}
 
 $resolvedRepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $localWpRoot = Join-Path $resolvedRepoRoot "local-wp"

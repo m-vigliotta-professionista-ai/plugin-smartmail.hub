@@ -20,6 +20,8 @@ Dentro trovi:
 - ambiente WordPress locale separato: `local-wp/`
 - script di sync plugin -> WordPress locale: `bin/sync-plugin.ps1`
 - script one-shot per attivazione plugin + pagina test: `bin/bootstrap-local.ps1`
+- script di ispezione account locali: `bin/inspect-local-accounts.ps1`
+- script di creazione/riparazione account locali: `bin/save-local-account.ps1`
 
 ## Struttura del progetto
 
@@ -110,7 +112,7 @@ Installa WordPress:
 
 ```powershell
 ddev wp core download
-ddev wp core install --url=http://smartmail-hub-local.ddev.site --title="SmartMail Hub Local" --admin_user=admin --admin_password=admin --admin_email=admin@example.com --skip-email
+ddev wp core install --url=https://smartmail-hub-local.ddev.site --title="SmartMail Hub Local" --admin_user=admin --admin_password=admin --admin_email=admin@example.com --skip-email
 ```
 
 ### Sincronizzare il plugin dentro WordPress locale
@@ -236,6 +238,108 @@ https://smartmail-hub-local.ddev.site:8026
 ```
 
 Questa e la modalita piu sicura per lavorare sulla UI e testare il composer.
+
+### Come funziona davvero la mail sul server
+
+Il plugin sul server pubblico non usa una logica speciale diversa dal clone locale. Il flusso reale e questo:
+
+1. l'account viene salvato in `wp_v24_smh_accounts`
+2. `includes/Accounts/class-account-service.php` valida i campi e cifra `username` e `secret`
+3. la cifratura passa da `includes/Security/class-encryption.php`
+4. la chiave deriva da `AUTH_KEY`, `SECURE_AUTH_KEY`, `LOGGED_IN_KEY`, `NONCE_KEY` e `siteurl`
+5. quando fai `Test IMAP/SMTP`, `V24_SMH_IMAP_Client` decifra le credenziali e prova `imap_open()`
+6. quando fai `Sync`, `includes/REST/class-rest-accounts-controller.php` chiama `includes/Mail/class-mail-sync-service.php`
+7. il sync legge le cartelle da IMAP, poi salva cartelle, messaggi, destinatari e allegati nelle tabelle `wp_v24_smh_*`
+
+In pratica:
+
+- lettura mailbox = IMAP vero
+- invio email = SMTP diretto oppure `wp_mail`, in base a `v24_smh_settings.outbound_transport`
+- UI frontend = legge il contenuto sincronizzato dal DB locale del plugin
+
+### Perche un account puo rompersi in locale anche se i parametri sono giusti
+
+Le credenziali non sono salvate in chiaro. Sono salvate cifrate con una chiave legata all'installazione WordPress.
+
+Questo significa che una riga account salvata quando cambia uno di questi elementi puo diventare non piu leggibile:
+
+- chiavi/salts di WordPress
+- `siteurl`
+- contesto dell'installazione locale
+
+Quando succede, l'account resta visibile nel DB ma il plugin non riesce piu a decifrare `encrypted_username` o `encrypted_secret`.
+
+Il sintomo tipico e uno di questi:
+
+- `Credenziali IMAP mancanti`
+- `AUTHENTICATIONFAILED`
+
+Nel clone locale di questo progetto e stato verificato che:
+
+- gli account `DevTeam` creati in precedenza non sono piu decifrabili
+- un account creato nel contesto locale attuale viene invece cifrato e decifrato correttamente
+
+Quindi il fix giusto non e copiare alla cieca la riga vecchia, ma ricreare o aggiornare l'account nel contesto chiave locale corrente.
+
+### Script utili per capire e riparare il locale
+
+Per vedere subito se gli account locali sono leggibili:
+
+```powershell
+cd "C:\Users\MicheleVigliotta\Desktop\Projects\plugin-smartmail-hub"
+.\bin\inspect-local-accounts.ps1
+```
+
+Lo script mostra:
+
+- `siteurl` e `home` del clone locale
+- trasporto di invio attivo
+- elenco account
+- stato
+- `username_decryptable`
+- `secret_decryptable`
+- eventuale `last_error`
+
+Per riparare un account esistente mantenendo host e porte gia salvati, basta riscrivere le credenziali nel contesto locale corrente:
+
+```powershell
+cd "C:\Users\MicheleVigliotta\Desktop\Projects\plugin-smartmail-hub"
+.\bin\save-local-account.ps1 -AccountId 1 -Username "dev.team@aioffice24.it" -Secret "LA_TUA_PASSWORD_O_APP_PASSWORD" -RunTest
+```
+
+Per creare o riallineare un account da email, aggiornando la riga piu recente e ripulendo i duplicati:
+
+```powershell
+cd "C:\Users\MicheleVigliotta\Desktop\Projects\plugin-smartmail-hub"
+.\bin\save-local-account.ps1 `
+  -EmailAddress "dev.team@aioffice24.it" `
+  -Label "DevTeam" `
+  -DisplayName "DevTeam" `
+  -ImapHost "mail.aioffice24.it" `
+  -ImapPort 993 `
+  -ImapEncryption "ssl_tls" `
+  -SmtpHost "mail.aioffice24.it" `
+  -SmtpPort 465 `
+  -SmtpEncryption "ssl_tls" `
+  -Username "dev.team@aioffice24.it" `
+  -Secret "LA_TUA_PASSWORD_O_APP_PASSWORD" `
+  -OwnerType "shared" `
+  -UpsertLatestByEmail `
+  -DeleteOtherMatches `
+  -RunTest
+```
+
+Se vuoi lanciare subito anche la sincronizzazione:
+
+```powershell
+.\bin\save-local-account.ps1 -AccountId 1 -Username "dev.team@aioffice24.it" -Secret "LA_TUA_PASSWORD_O_APP_PASSWORD" -RunTest -RunSync
+```
+
+Nota importante:
+
+- questi script non recuperano la password dalla riga corrotta
+- riscrivono solo nuove credenziali in modo compatibile con il clone locale attuale
+- se la mailbox usa MFA o 2FA, serve una `app password`
 
 Opzioni utili:
 

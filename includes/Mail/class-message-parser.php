@@ -12,15 +12,19 @@ class V24_SMH_Message_Parser
 
         $plain_utf8 = self::sanitize_text_content($plain_utf8);
         $html_utf8 = self::sanitize_html_content($html_utf8);
+        $plain_utf8 = self::coerce_valid_utf8($plain_utf8);
+        $html_utf8 = self::coerce_valid_utf8($html_utf8);
+        $html_sanitized = $html_utf8 !== '' ? wp_kses_post($html_utf8) : nl2br(esc_html($plain_utf8));
+        $html_sanitized = self::coerce_valid_utf8($html_sanitized);
 
         return [
             'body_plain' => $plain_utf8,
             'body_html_raw' => $html_utf8,
-            'body_html_sanitized' => $html_utf8 !== '' ? wp_kses_post($html_utf8) : nl2br(esc_html($plain_utf8)),
+            'body_html_sanitized' => $html_sanitized,
             'body_hash' => hash('sha256', $plain_utf8 . $html_utf8),
             'charset' => 'UTF-8',
-            'preview_text' => self::build_preview($plain_utf8, $html_utf8),
-            'search_text' => self::build_search_text($plain_utf8, $html_utf8),
+            'preview_text' => self::build_preview($plain_utf8, $html_sanitized),
+            'search_text' => self::build_search_text($plain_utf8, $html_sanitized),
         ];
     }
 
@@ -148,8 +152,53 @@ class V24_SMH_Message_Parser
 
     private static function strip_invalid_bytes(string $value): string
     {
-        $clean = @preg_replace('//u', '', $value);
-        return is_string($clean) ? $clean : $value;
+        if ($value === '') {
+            return '';
+        }
+
+        $clean = function_exists('wp_check_invalid_utf8')
+            ? wp_check_invalid_utf8($value, true)
+            : $value;
+        if (!is_string($clean)) {
+            $clean = $value;
+        }
+
+        if ($clean === '' && $value !== '') {
+            if (function_exists('mb_convert_encoding')) {
+                try {
+                    $converted = @mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+                    if ($converted !== false && is_string($converted)) {
+                        $clean = $converted;
+                    }
+                } catch (ValueError $exception) {
+                    $clean = $value;
+                }
+            } elseif (function_exists('iconv')) {
+                $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+                if ($converted !== false && is_string($converted)) {
+                    $clean = $converted;
+                }
+            }
+        }
+
+        return is_string($clean) ? $clean : '';
+    }
+
+    private static function coerce_valid_utf8(string $value): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        $value = function_exists('wp_check_invalid_utf8')
+            ? wp_check_invalid_utf8($value, true)
+            : $value;
+        if (!is_string($value)) {
+            return '';
+        }
+
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $value) ?? $value;
+        return is_string($value) ? $value : '';
     }
 
     private static function repair_common_mojibake(string $value): string
